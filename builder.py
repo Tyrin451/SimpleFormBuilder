@@ -144,7 +144,7 @@ class SimpleFormBuilder:
         """
         Generates the LaTeX report.
         """
-        lines = ["\\begin{align}"]
+        lines = [r"\begin{align}"]
         
         for step in self.steps:
             if step.get("hidden", False):
@@ -163,7 +163,7 @@ class SimpleFormBuilder:
                     mag_str = f_str.format(mag)
                     # Format unit (using pint's latex support or simple string)
                     # Pint's default latex might be verbose, let's try strict latex
-                    unit_str = f"\\ \\text{{{val.units:~L}}}" # ~L for compact latex
+                    unit_str = rf"\ {val.units:~L}" # ~L for compact latex
                     return f"{mag_str}{unit_str}"
                 elif isinstance(val, (int, float)):
                     return f_str.format(val)
@@ -184,24 +184,24 @@ class SimpleFormBuilder:
                 except:
                     # Fallback if parsing fails (e.g. custom syntax not supported by sympy)
                     # Just replace * with \cdot and ** with ^
-                    return expr_str.replace("**", "^").replace("*", "\\cdot ")
+                    return expr_str.replace("**", "^").replace("*", r"\cdot ")
 
             if step["type"] == "param":
                 val_str = format_value(step["value"], step["fmt"])
-                desc_str = f" && \\text{{{step['desc']}}}" if step["desc"] else ""
-                lines.append(f"{step['symbol']} &= {val_str}{desc_str} \\\\")
+                desc_str = rf" && \text{{{step['desc']}}}" if step["desc"] else ""
+                lines.append(rf"{step['symbol']} &= {val_str}{desc_str} \\")
                 
             elif step["type"] == "eq":
                 val_str = format_value(step.get("result"), step["fmt"])
                 expr_latex = format_expr(step["expr"])
-                desc_str = f" && \\text{{{step['desc']}}}" if step["desc"] else ""
-                lines.append(f"{step['symbol']} &= {expr_latex} = {val_str}{desc_str} \\\\")
+                desc_str = rf" && \text{{{step['desc']}}}" if step["desc"] else ""
+                lines.append(rf"{step['symbol']} &= {expr_latex} = {val_str}{desc_str} \\")
                 
             elif step["type"] == "check":
-                status = "\\textbf{OK}" if step.get("result") else "\\textbf{FAIL}"
+                status = r"\textbf{OK}" if step.get("result") else r"\textbf{FAIL}"
                 expr_latex = format_expr(step["expr"])
-                desc_str = f" && \\text{{{step['desc']}}}" if step["desc"] else ""
-                lines.append(f"\\text{{Check}} &: {expr_latex} \\rightarrow {status}{desc_str} \\\\")
+                desc_str = rf" && \text{{{step['desc']}}}" if step["desc"] else ""
+                lines.append(rf"\text{{Check}} &: {expr_latex} \rightarrow {status}{desc_str} \\")
 
-        lines.append("\\end{align}")
+        lines.append(r"\end{align}")
         return "\n".join(lines)
