@@ -199,7 +199,42 @@ class SimpleFormBuilder:
                 
             elif step["type"] == "check":
                 status = r"\textbf{OK}" if step.get("result") else r"\textbf{FAIL}"
-                expr_latex = format_expr(step["expr"])
+                
+                # Format expression with values
+                try:
+                    sym_expr = sympy.sympify(step["expr"], evaluate=False)
+                    subs = {}
+                    # Find all symbols in the expression
+                    for sym in sym_expr.free_symbols:
+                        sym_name = str(sym)
+                        # Find corresponding parameter or equation
+                        if sym_name in self.params:
+                            val = self.params[sym_name]
+                            # Find the latex symbol for this variable
+                            # We need to find the step that defined this variable to get its symbol and fmt
+                            # Or we can look up in self.symbols if we stored it there (we did)
+                            latex_sym = self.symbols.get(sym_name, sym_name)
+                            
+                            # Find format spec if available
+                            fmt = None
+                            for s in self.steps:
+                                if s.get("name") == sym_name:
+                                    fmt = s.get("fmt")
+                                    break
+                            
+                            val_str = format_value(val, fmt)
+                            
+                            # Create replacement symbol: {\symbol} (value)
+                            # We wrap symbol in braces to protect it from sympy formatting issues
+                            new_sym_latex = rf"{{{latex_sym}}} ({val_str})"
+                            subs[sym] = sympy.Symbol(new_sym_latex)
+                    
+                    expr_latex = sympy.latex(sym_expr.subs(subs))
+                except Exception as e:
+                    # Fallback if something goes wrong
+                    print(f"Error formatting check expression: {e}")
+                    expr_latex = format_expr(step["expr"])
+
                 desc_str = rf" && \text{{{step['desc']}}}" if step["desc"] else ""
                 lines.append(rf"\text{{Check}} &: {expr_latex} \rightarrow {status}{desc_str} \\")
 

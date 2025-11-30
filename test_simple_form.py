@@ -4,11 +4,13 @@ __generated_with = "0.18.1"
 app = marimo.App(width="medium")
 
 
-@app.cell
-def _():
-    import marimo as mo
+app._unparsable_cell(
+    r"""
+    simport marimo as mo
     from builder import SimpleFormBuilder
-    return SimpleFormBuilder, mo
+    """,
+    name="_"
+)
 
 
 @app.cell
