@@ -226,7 +226,7 @@ class SimpleFormBuilder:
                             
                             # Create replacement symbol: {\symbol} (value)
                             # We wrap symbol in braces to protect it from sympy formatting issues
-                            new_sym_latex = rf"{{{latex_sym}}} ({val_str})"
+                            new_sym_latex = rf"{{{latex_sym}}} = {val_str}"
                             subs[sym] = sympy.Symbol(new_sym_latex)
                     
                     expr_latex = sympy.latex(sym_expr.subs(subs))
@@ -236,7 +236,7 @@ class SimpleFormBuilder:
                     expr_latex = format_expr(step["expr"])
 
                 desc_str = rf" && \text{{{step['desc']}}}" if step["desc"] else ""
-                lines.append(rf"\text{{Check}} &: {expr_latex} \rightarrow {status}{desc_str} \\")
+                lines.append(rf"\text{{{step['name']}}} &: {expr_latex} \rightarrow {status}{desc_str} \\")
 
         lines.append(r"\end{align}")
         return "\n".join(lines)

@@ -4,13 +4,11 @@ __generated_with = "0.18.1"
 app = marimo.App(width="medium")
 
 
-app._unparsable_cell(
-    r"""
-    simport marimo as mo
+@app.cell
+def _():
+    import marimo as mo
     from builder import SimpleFormBuilder
-    """,
-    name="_"
-)
+    return SimpleFormBuilder, mo
 
 
 @app.cell
@@ -29,7 +27,7 @@ def _(SimpleFormBuilder, mo):
     builder.add_equation("sigma", "\\sigma", "Fx / A", unit=u.MPa, desc="Contrainte")
 
     # 4. Ajout de vérifications (Checks)
-    builder.add_check("sigma < sigma_a", desc="Contrainte admissible")
+    builder.add_check("sigma < sigma_a", desc="Contrainte admissible", name='Check1')
 
     # 5. Exécution des calculs
     print("Evaluation des calculs...")
