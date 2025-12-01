@@ -12,14 +12,14 @@ def _():
 
 
 @app.cell
-def _(SimpleFormBuilder, mo):
+def _(SimpleFormBuilder):
     # 1. Initialisation
     builder = SimpleFormBuilder()
     u = builder.ureg
 
     # 2. Définition des paramètres
     builder.add_param("Fx", "F_x", 10 * u.kN, desc="Force axiale")
-    builder.add_param("A", "A", 50 * u.cm**2, desc="Section")
+    builder.add_param("A", "A", 50 * u.mm**2, desc="Section")
     builder.add_param("sigma_a", r"\sigma_a", 100 * u.MPa, desc="Contrainte admissible")
 
     # 3. Définition des équations
@@ -30,13 +30,20 @@ def _(SimpleFormBuilder, mo):
     builder.add_check("sigma < sigma_a", desc="Contrainte admissible", name='Check1')
 
     # 5. Exécution des calculs
-    print("Evaluation des calculs...")
     builder.evaluate()
 
+    templates = {
+        "param": r"{symbol} &= {value} && \text{{{desc}}} \\",
+        "eq": r"{symbol} &= {expr} = {value} && \text{{{desc}}} \\",
+        "check": r"\text{{{name}}} : &&& \text{{{desc}}} \\ & {expr} \rightarrow {status} &&  \\"
+    }
     # 6. Génération du rapport
-    print("Génération du rapport LaTeX...")
-    report = builder.report()
+    report = builder.report(row_templates=templates)
+    return (report,)
 
+
+@app.cell
+def _(mo, report):
     mo.md(f"$${report}$$")
     return
 

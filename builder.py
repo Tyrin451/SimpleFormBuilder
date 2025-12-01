@@ -140,82 +140,93 @@ class SimpleFormBuilder:
                 except Exception as e:
                      raise RuntimeError(f"Error evaluating check '{step['desc']}': {e}")
 
-    def report(self) -> str:
+    def report(self, row_templates: Optional[Dict[str, str]] = None) -> str:
         """
         Generates the LaTeX report.
+        
+        Args:
+            row_templates: Optional dictionary to override default row templates.
+                           Keys: 'param', 'eq', 'check'.
         """
-        lines = [r"\begin{align}"]
+        default_templates = {
+            "param": r"{symbol} &= {value} && \text{{{desc}}} \\",
+            "eq": r"{symbol} &= {expr} = {value} && \text{{{desc}}} \\",
+            "check": r"\text{{{name}}} &: {expr} \rightarrow {status} && \text{{{desc}}} \\"
+        }
+        
+        templates = default_templates.copy()
+        if row_templates:
+            templates.update(row_templates)
+
+        lines = [r"\begin{align*}"]
+
+        # Helper to format value
+        def format_value(val, fmt_spec):
+            if fmt_spec:
+                f_str = f"{{:{fmt_spec}}}"
+            else:
+                f_str = f"{{:.{self.precision}f}}"
+            
+            if isinstance(val, pint.Quantity):
+                mag = val.magnitude
+                # Format magnitude
+                mag_str = f_str.format(mag)
+                # Format unit (using pint's latex support or simple string)
+                unit_str = rf"\ {val.units:~L}" # ~L for compact latex
+                return f"{mag_str}{unit_str}"
+            elif isinstance(val, (int, float)):
+                return f_str.format(val)
+            else:
+                return str(val)
+
+        # Helper to format expression to LaTeX
+        def format_expr(expr_str):
+            # Use sympy to parse and convert to latex
+            # We need to substitute variable names with their latex symbols
+            try:
+                sym_expr = sympy.sympify(expr_str, evaluate=False)
+                # Create a substitution dict
+                subs = {sympy.Symbol(name): sympy.Symbol(sym) for name, sym in self.symbols.items()}
+                # Substitute
+                sym_expr_sub = sym_expr.subs(subs)
+                return sympy.latex(sym_expr_sub)
+            except:
+                # Fallback if parsing fails
+                return expr_str.replace("**", "^").replace("*", r"\cdot ")
         
         for step in self.steps:
             if step.get("hidden", False):
                 continue
-                
-            # Helper to format value
-            def format_value(val, fmt_spec):
-                if fmt_spec:
-                    f_str = f"{{:{fmt_spec}}}"
-                else:
-                    f_str = f"{{:.{self.precision}f}}"
-                
-                if isinstance(val, pint.Quantity):
-                    mag = val.magnitude
-                    # Format magnitude
-                    mag_str = f_str.format(mag)
-                    # Format unit (using pint's latex support or simple string)
-                    # Pint's default latex might be verbose, let's try strict latex
-                    unit_str = rf"\ {val.units:~L}" # ~L for compact latex
-                    return f"{mag_str}{unit_str}"
-                elif isinstance(val, (int, float)):
-                    return f_str.format(val)
-                else:
-                    return str(val)
-
-            # Helper to format expression to LaTeX
-            def format_expr(expr_str):
-                # Use sympy to parse and convert to latex
-                # We need to substitute variable names with their latex symbols
-                try:
-                    sym_expr = sympy.sympify(expr_str, evaluate=False)
-                    # Create a substitution dict
-                    subs = {sympy.Symbol(name): sympy.Symbol(sym) for name, sym in self.symbols.items()}
-                    # Substitute
-                    sym_expr_sub = sym_expr.subs(subs)
-                    return sympy.latex(sym_expr_sub)
-                except:
-                    # Fallback if parsing fails (e.g. custom syntax not supported by sympy)
-                    # Just replace * with \cdot and ** with ^
-                    return expr_str.replace("**", "^").replace("*", r"\cdot ")
+            
+            data = {
+                "symbol": step.get("symbol", ""),
+                "name": step.get("name", ""),
+                "desc": step.get("desc", ""),
+                "value": "",
+                "expr": "",
+                "status": ""
+            }
 
             if step["type"] == "param":
-                val_str = format_value(step["value"], step["fmt"])
-                desc_str = rf" && \text{{{step['desc']}}}" if step["desc"] else ""
-                lines.append(rf"{step['symbol']} &= {val_str}{desc_str} \\")
+                data["value"] = format_value(step["value"], step.get("fmt"))
                 
             elif step["type"] == "eq":
-                val_str = format_value(step.get("result"), step["fmt"])
-                expr_latex = format_expr(step["expr"])
-                desc_str = rf" && \text{{{step['desc']}}}" if step["desc"] else ""
-                lines.append(rf"{step['symbol']} &= {expr_latex} = {val_str}{desc_str} \\")
+                data["value"] = format_value(step.get("result"), step.get("fmt"))
+                data["expr"] = format_expr(step["expr"])
                 
             elif step["type"] == "check":
-                status = r"\textbf{OK}" if step.get("result") else r"\textbf{FAIL}"
+                data["status"] = r"\textbf{\textcolor{green}{OK}}" if step.get("result") else r"\textbf{\textcolor{red}{FAIL}}"
                 
                 # Format expression with values
                 try:
                     sym_expr = sympy.sympify(step["expr"], evaluate=False)
                     subs = {}
-                    # Find all symbols in the expression
                     for sym in sym_expr.free_symbols:
                         sym_name = str(sym)
-                        # Find corresponding parameter or equation
                         if sym_name in self.params:
                             val = self.params[sym_name]
-                            # Find the latex symbol for this variable
-                            # We need to find the step that defined this variable to get its symbol and fmt
-                            # Or we can look up in self.symbols if we stored it there (we did)
                             latex_sym = self.symbols.get(sym_name, sym_name)
                             
-                            # Find format spec if available
                             fmt = None
                             for s in self.steps:
                                 if s.get("name") == sym_name:
@@ -223,20 +234,21 @@ class SimpleFormBuilder:
                                     break
                             
                             val_str = format_value(val, fmt)
-                            
-                            # Create replacement symbol: {\symbol} (value)
-                            # We wrap symbol in braces to protect it from sympy formatting issues
                             new_sym_latex = rf"{{{latex_sym}}} = {val_str}"
                             subs[sym] = sympy.Symbol(new_sym_latex)
                     
-                    expr_latex = sympy.latex(sym_expr.subs(subs))
+                    data["expr"] = sympy.latex(sym_expr.subs(subs))
                 except Exception as e:
-                    # Fallback if something goes wrong
                     print(f"Error formatting check expression: {e}")
-                    expr_latex = format_expr(step["expr"])
+                    data["expr"] = format_expr(step["expr"])
 
-                desc_str = rf" && \text{{{step['desc']}}}" if step["desc"] else ""
-                lines.append(rf"\text{{{step['name']}}} &: {expr_latex} \rightarrow {status}{desc_str} \\")
+            try:
+                line = templates[step["type"]].format(**data)
+                lines.append(line)
+            except KeyError:
+                pass
+            except Exception as e:
+                lines.append(f"% Error rendering step {step.get('name')}: {e}")
 
-        lines.append(r"\end{align}")
+        lines.append(r"\end{align*}")
         return "\n".join(lines)
