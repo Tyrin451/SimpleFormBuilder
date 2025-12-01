@@ -220,6 +220,8 @@ class SimpleFormBuilder:
                 # Format expression with values
                 try:
                     sym_expr = sympy.sympify(step["expr"], evaluate=False)
+                    if not step.get("result"):
+                        sym_expr = sympy.Not(sym_expr)
                     subs = {}
                     for sym in sym_expr.free_symbols:
                         sym_name = str(sym)

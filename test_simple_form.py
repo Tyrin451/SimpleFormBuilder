@@ -19,7 +19,7 @@ def _(SimpleFormBuilder):
 
     # 2. Définition des paramètres
     builder.add_param("Fx", "F_x", 10 * u.kN, desc="Force axiale")
-    builder.add_param("A", "A", 50 * u.mm**2, desc="Section")
+    builder.add_param("A", "A", 50 * u.cm**2, desc="Section")
     builder.add_param("sigma_a", r"\sigma_a", 100 * u.MPa, desc="Contrainte admissible")
 
     # 3. Définition des équations
@@ -27,7 +27,7 @@ def _(SimpleFormBuilder):
     builder.add_equation("sigma", "\\sigma", "Fx / A", unit=u.MPa, desc="Contrainte")
 
     # 4. Ajout de vérifications (Checks)
-    builder.add_check("sigma < sigma_a", desc="Contrainte admissible", name='Check1')
+    builder.add_check("sigma <= sigma_a", desc="Contrainte admissible", name='Check1')
 
     # 5. Exécution des calculs
     builder.evaluate()
