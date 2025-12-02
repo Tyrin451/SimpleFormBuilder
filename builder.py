@@ -3,6 +3,7 @@
 
 import pint
 import sympy
+import numpy as np
 from typing import Any, Optional, List, Dict
 
 class SimpleFormBuilder:
@@ -30,8 +31,8 @@ class SimpleFormBuilder:
             raise ValueError(f"Parameter name '{name}' must be a valid Python identifier.")
         
         # 5. Sécurité et Robustesse : Gestion des types
-        if not isinstance(value, (int, float, pint.Quantity)):
-             raise TypeError(f"Value for '{name}' must be int, float, or pint.Quantity.")
+        if not isinstance(value, (int, float, pint.Quantity, np.ndarray)):
+             raise TypeError(f"Value for '{name}' must be int, float, pint.Quantity, or np.ndarray.")
 
         self.params[name] = value
         self.symbols[name] = symbol
@@ -85,7 +86,6 @@ class SimpleFormBuilder:
         # 3.2.4 evaluate - Contexte d'évaluation
         # Prepare evaluation context with standard math functions and current params
         import math
-        import numpy as np # Optional but recommended in spec
         
         context = {
             "sqrt": np.sqrt,
@@ -98,6 +98,8 @@ class SimpleFormBuilder:
             "abs": abs,
             "min": min,
             "max": max,
+            "all": all,
+            "any": any,
             "u": self.ureg, # Access to units via 'u' (common convention)
             **self.params
         }
@@ -139,7 +141,12 @@ class SimpleFormBuilder:
                 try:
                     # 3.2.4 evaluate - 2. Evaluer expr (booléen)
                     result = eval(step["expr"], {"__builtins__": {}}, context)
-                    step["result"] = result # Boolean
+                    
+                    # Handle numpy array results
+                    if isinstance(result, np.ndarray):
+                        step["result"] = bool(result.all())
+                    else:
+                        step["result"] = result # Boolean
                 except Exception as e:
                      raise RuntimeError(f"Error evaluating check '{step['desc']}': {e}")
 
@@ -173,12 +180,17 @@ class SimpleFormBuilder:
             if isinstance(val, pint.Quantity):
                 mag = val.magnitude
                 # Format magnitude
-                mag_str = f_str.format(mag)
+                if isinstance(mag, np.ndarray):
+                     mag_str = np.array2string(mag, precision=self.precision, separator=', ')
+                else:
+                    mag_str = f_str.format(mag)
                 # Format unit (using pint's latex support or simple string)
                 unit_str = rf"\ {val.units:~L}" # ~L for compact latex
                 return f"{mag_str}{unit_str}"
             elif isinstance(val, (int, float)):
                 return f_str.format(val)
+            elif isinstance(val, np.ndarray):
+                return np.array2string(val, precision=self.precision, separator=', ')
             else:
                 return str(val)
 
