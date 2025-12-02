@@ -64,8 +64,8 @@ def test_checks():
     builder.evaluate()
     
     report = builder.report()
-    assert "\\textbf{OK}" in report
-    assert "\\textbf{FAIL}" in report
+    assert "\\textbf{\\textcolor{green}{OK}}" in report
+    assert "\\textbf{\\textcolor{red}{FAIL}}" in report
 
 def test_hidden_variables():
     builder = SimpleFormBuilder()
@@ -89,3 +89,43 @@ def test_formatting():
     builder.evaluate()
     report = builder.report()
     assert "3.1416" in report
+
+def test_engineering_functions():
+    builder = SimpleFormBuilder()
+    u = builder.ureg
+    
+    builder.add_param("val1", "v1", -10)
+    builder.add_param("val2", "v2", 20)
+    
+    builder.add_equation("abs_val", "abs_v", "abs(val1)")
+    builder.add_equation("min_val", "min_v", "min(val1, val2)")
+    builder.add_equation("max_val", "max_v", "max(val1, val2)")
+    
+    builder.evaluate()
+    
+    assert builder.params["abs_val"] == 10
+    assert builder.params["min_val"] == -10
+    assert builder.params["max_val"] == 20
+
+def test_advanced_unit_conversions():
+    builder = SimpleFormBuilder()
+    u = builder.ureg
+    
+    # Area conversion
+    builder.add_param("width", "w", 100 * u.cm)
+    builder.add_param("height", "h", 2 * u.m)
+    builder.add_equation("area", "A", "width * height", unit=u.m**2)
+    
+    # Mixed units in min/max (requires compatible units)
+    builder.add_param("force1", "F1", 1 * u.kN)
+    builder.add_param("force2", "F2", 500 * u.N)
+    
+    builder.add_equation("max_force", "F_{max}", "max(force1, force2)", unit=u.kN)
+    
+    builder.evaluate()
+    
+    assert builder.params["area"].magnitude == pytest.approx(2.0)
+    assert builder.params["area"].units == u.m**2
+    
+    assert builder.params["max_force"].magnitude == pytest.approx(1.0)
+    assert builder.params["max_force"].units == u.kN

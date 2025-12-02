@@ -95,6 +95,9 @@ class SimpleFormBuilder:
             "pi": np.pi,
             "log": np.log,
             "exp": np.exp,
+            "abs": abs,
+            "min": min,
+            "max": max,
             "u": self.ureg, # Access to units via 'u' (common convention)
             **self.params
         }
