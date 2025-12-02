@@ -8,19 +8,20 @@ app = marimo.App(width="medium")
 def _():
     import marimo as mo
     from builder import SimpleFormBuilder
-    return SimpleFormBuilder, mo
+    import numpy as np
+    return SimpleFormBuilder, mo, np
 
 
 @app.cell
-def _(SimpleFormBuilder):
+def _(SimpleFormBuilder, np):
     # 1. Initialisation
     builder = SimpleFormBuilder()
     u = builder.ureg
 
     # 2. Définition des paramètres
-    builder.add_param("Fx", "F_x", 10 * u.kN, desc="Force axiale")
+    builder.add_param("Fx", "F_x",  np.array([10, 20, 501]) * u.kN, desc="Force axiale")
     builder.add_param("A", "A", 50 * u.cm**2, desc="Section")
-    builder.add_param("sigma_a", r"\sigma_a", 100 * u.MPa, desc="Contrainte admissible")
+    builder.add_param("sigma_a", r"\sigma_a", np.array([100, 100, 150]) * u.MPa, desc="Contrainte admissible")
 
     # 3. Définition des équations
     # sigma = Fx / A

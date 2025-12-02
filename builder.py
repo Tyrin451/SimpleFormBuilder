@@ -181,7 +181,8 @@ class SimpleFormBuilder:
                 mag = val.magnitude
                 # Format magnitude
                 if isinstance(mag, np.ndarray):
-                     mag_str = np.array2string(mag, precision=self.precision, separator=', ')
+                    #  mag_str = np.array2string(mag, precision=self.precision, separator=', ')
+                     mag_str = r'\begin{bmatrix}'+np.array2string(mag, precision=self.precision, separator=r'\\').strip("[]") + r'\end{bmatrix}'
                 else:
                     mag_str = f_str.format(mag)
                 # Format unit (using pint's latex support or simple string)
