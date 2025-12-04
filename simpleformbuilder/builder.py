@@ -68,7 +68,7 @@ class SimpleFormBuilder:
             "fmt": fmt
         })
 
-    def add_check(self, expr: str, desc: str, name: str = "Check"):
+    def add_check(self, expr: str, desc: str, name: str = "Check", fmt: str = None):
         """
         Adds a validation step.
         """
@@ -76,7 +76,8 @@ class SimpleFormBuilder:
             "type": "check",
             "name": name,
             "expr": expr,
-            "desc": desc
+            "desc": desc,
+            "fmt": fmt
         })
 
     def evaluate(self):
@@ -258,11 +259,13 @@ class SimpleFormBuilder:
                             val = self.params[sym_name]
                             latex_sym = self.symbols.get(sym_name, sym_name)
                             
-                            fmt = None
-                            for s in self.steps:
-                                if s.get("name") == sym_name:
-                                    fmt = s.get("fmt")
-                                    break
+                            # Priority: check step fmt > variable step fmt > default
+                            fmt = step.get("fmt")
+                            if fmt is None:
+                                for s in self.steps:
+                                    if s.get("name") == sym_name:
+                                        fmt = s.get("fmt")
+                                        break
                             
                             val_str = format_value(val, fmt)
                             new_sym_latex = rf"{{{latex_sym}}} = {val_str}"

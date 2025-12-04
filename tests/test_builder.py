@@ -177,3 +177,31 @@ def test_getitem_access():
     with pytest.raises(KeyError):
         _ = builder["non_existent"]
 
+def test_check_formatting():
+    builder = sf_builder.SimpleFormBuilder()
+    
+    # Param with default format
+    builder.add_param("val", "v", 0.123456)
+    # Param with custom format
+    builder.add_param("percent", "p", 0.123456, fmt=".2%")
+    
+    # Check using default format of variable
+    builder.add_check("val < 1", "Default check")
+    # Check overriding format
+    builder.add_check("val < 1", "Custom check", fmt=".4f")
+    # Check using percent format
+    builder.add_check("percent < 1", "Percent check")
+    
+    builder.evaluate()
+    report = builder.report()
+    
+    # Default precision is 2, so 0.12
+    assert "0.12" in report
+    
+    # Custom check should show 0.1235
+    assert "0.1235" in report
+    
+    # Percent check should show 12.35%
+    assert "12.35%" in report
+
+
