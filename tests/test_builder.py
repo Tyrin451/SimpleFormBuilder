@@ -129,3 +129,29 @@ def test_advanced_unit_conversions():
     
     assert builder.params["max_force"].magnitude == pytest.approx(1.0)
     assert builder.params["max_force"].units == u.kN
+
+def test_latex_rendering():
+    builder = SimpleFormBuilder()
+    u = builder.ureg
+    
+    # Test case from issue: N + T / mu
+    # 'N' clashes with sympy.N (numerical evaluation)
+    # 'mu' needs to be rendered as \mu
+    
+    builder.add_param("N", "N_{max}", 100 * u.N)
+    builder.add_param("T", "T_{max}", 50 * u.N)
+    builder.add_param("mu", r"\mu", 0.2)
+    
+    builder.add_equation("F0", "F_0", "N + T/mu", unit=u.N)
+    
+    builder.evaluate()
+    
+    report = builder.report()
+    
+    # Check for correct latex rendering
+    # Expected: F_0 &= N_{max} + \frac{T_{max}}{\mu}
+    # We check for parts of it to be robust against spacing changes
+    assert r"N_{max}" in report
+    assert r"\frac{T_{max}}{\mu}" in report
+    assert r"\mu" in report
+

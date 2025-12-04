@@ -200,13 +200,17 @@ class SimpleFormBuilder:
             # Use sympy to parse and convert to latex
             # We need to substitute variable names with their latex symbols
             try:
-                sym_expr = sympy.sympify(expr_str, evaluate=False)
-                # Create a substitution dict
-                subs = {sympy.Symbol(name): sympy.Symbol(sym) for name, sym in self.symbols.items()}
-                # Substitute
-                sym_expr_sub = sym_expr.subs(subs)
-                return sympy.latex(sym_expr_sub)
-            except:
+                # Create locals dict to prevent sympy from interpreting params as functions (e.g. N)
+                local_dict = {name: sympy.Symbol(name) for name in self.params.keys()}
+                
+                sym_expr = sympy.sympify(expr_str, locals=local_dict, evaluate=False)
+                
+                # Create a symbol_names dict for latex generation
+                # This maps Symbol objects to their latex string representation
+                symbol_names = {sympy.Symbol(name): sym for name, sym in self.symbols.items()}
+                
+                return sympy.latex(sym_expr, symbol_names=symbol_names)
+            except Exception as e:
                 # Fallback if parsing fails
                 return expr_str.replace("**", "^").replace("*", r"\cdot ")
         
@@ -235,7 +239,10 @@ class SimpleFormBuilder:
                 
                 # Format expression with values
                 try:
-                    sym_expr = sympy.sympify(step["expr"], evaluate=False)
+                    # Create locals dict
+                    local_dict = {name: sympy.Symbol(name) for name in self.params.keys()}
+                    
+                    sym_expr = sympy.sympify(step["expr"], locals=local_dict, evaluate=False)
                     if not step.get("result"):
                         sym_expr = sympy.Not(sym_expr)
                     subs = {}
