@@ -39,7 +39,7 @@ pip install pint sympy numpy marimo
 Voici comment utiliser `SimpleFormBuilder` pour créer une note de calcul simple (vérification d'une contrainte).
 
 ```python
-from builder import SimpleFormBuilder
+from simpleformbuilder.builder import SimpleFormBuilder
 
 # 1. Initialisation
 builder = SimpleFormBuilder()
@@ -99,16 +99,19 @@ Enregistre un paramètre constant.
 - `symbol` : Symbole LaTeX pour l'affichage.
 - `value` : Valeur (int, float, pint.Quantity ou np.ndarray).
 - `desc` : Description textuelle.
+- `fmt` : Formatage de la valeur (ex: `".2f"`, `".1%"`). Par défaut `None` (utilise la précision globale).
 
 #### `add_equation(name, symbol, expr, unit=None, desc="", hidden=False, fmt=None)`
 Enregistre une équation à calculer.
 - `expr` : Expression mathématique sous forme de chaîne (ex: `"a * b + c"`).
 - `unit` : Unité `pint` vers laquelle convertir le résultat.
+- `fmt` : Formatage du résultat (ex: `".2f"`). Par défaut `None`.
 
-#### `add_check(expr, desc, name="Check")`
+#### `add_check(expr, desc, name="Check", fmt=None)`
 Ajoute une étape de validation.
 - `expr` : Expression booléenne (ex: `"x > 0"`).
 - `desc` : Description de la vérification.
+- `fmt` : Formatage des valeurs affichées dans l'expression (ex: `".2f"`).
 
 #### `evaluate()`
 Exécute tous les calculs et vérifications dans l'ordre où ils ont été ajoutés.
