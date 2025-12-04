@@ -1,9 +1,9 @@
 import pytest
 import pint
-from builder import SimpleFormBuilder
+from simpleformbuilder import builder as sf_builder
 
 def test_nominal_workflow():
-    builder = SimpleFormBuilder()
+    builder = sf_builder.SimpleFormBuilder()
     u = builder.ureg
     
     builder.add_param("Fx", "F_x", 10 * u.kN, desc="Force axiale")
@@ -28,7 +28,7 @@ def test_nominal_workflow():
     assert "MPa" in report
 
 def test_unit_conversion():
-    builder = SimpleFormBuilder()
+    builder = sf_builder.SimpleFormBuilder()
     u = builder.ureg
     
     builder.add_param("L1", "L_1", 10 * u.m)
@@ -42,7 +42,7 @@ def test_unit_conversion():
     assert builder.params["L_total"].units == u.m
 
 def test_math_functions():
-    builder = SimpleFormBuilder()
+    builder = sf_builder.SimpleFormBuilder()
     u = builder.ureg
     
     builder.add_param("x", "x", 9)
@@ -52,7 +52,7 @@ def test_math_functions():
     assert builder.params["y"] == pytest.approx(3.0)
 
 def test_checks():
-    builder = SimpleFormBuilder()
+    builder = sf_builder.SimpleFormBuilder()
     u = builder.ureg
     
     builder.add_param("sigma", "\\sigma", 150 * u.MPa)
@@ -68,7 +68,7 @@ def test_checks():
     assert "\\textbf{\\textcolor{red}{FAIL}}" in report
 
 def test_hidden_variables():
-    builder = SimpleFormBuilder()
+    builder = sf_builder.SimpleFormBuilder()
     u = builder.ureg
     
     builder.add_param("hidden_val", "H", 10, hidden=True)
@@ -84,14 +84,14 @@ def test_hidden_variables():
     assert "20" in report
 
 def test_formatting():
-    builder = SimpleFormBuilder()
+    builder = sf_builder.SimpleFormBuilder()
     builder.add_param("pi_val", "\\pi", 3.14159265, fmt=".4f")
     builder.evaluate()
     report = builder.report()
     assert "3.1416" in report
 
 def test_engineering_functions():
-    builder = SimpleFormBuilder()
+    builder = sf_builder.SimpleFormBuilder()
     u = builder.ureg
     
     builder.add_param("val1", "v1", -10)
@@ -108,7 +108,7 @@ def test_engineering_functions():
     assert builder.params["max_val"] == 20
 
 def test_advanced_unit_conversions():
-    builder = SimpleFormBuilder()
+    builder = sf_builder.SimpleFormBuilder()
     u = builder.ureg
     
     # Area conversion
@@ -131,7 +131,7 @@ def test_advanced_unit_conversions():
     assert builder.params["max_force"].units == u.kN
 
 def test_latex_rendering():
-    builder = SimpleFormBuilder()
+    builder = sf_builder.SimpleFormBuilder()
     u = builder.ureg
     
     # Test case from issue: N + T / mu
@@ -156,7 +156,7 @@ def test_latex_rendering():
     assert r"\mu" in report
 
 def test_getitem_access():
-    builder = SimpleFormBuilder()
+    builder = sf_builder.SimpleFormBuilder()
     u = builder.ureg
     
     builder.add_param("sigma", "\\sigma", 100 * u.MPa)

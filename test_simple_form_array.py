@@ -7,9 +7,9 @@ app = marimo.App(width="medium")
 @app.cell
 def _():
     import marimo as mo
-    from builder import SimpleFormBuilder
+    from simpleformbuilder import builder
     import numpy as np
-    return SimpleFormBuilder, mo, np
+    return builder.SimpleFormBuilder, mo, np
 
 
 @app.cell

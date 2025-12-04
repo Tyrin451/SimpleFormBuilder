@@ -1,16 +1,16 @@
 
 import pytest
 import numpy as np
-from builder import SimpleFormBuilder
+from simpleformbuilder import builder as sf_builder
 
 def test_numpy_params():
-    builder = SimpleFormBuilder()
+    builder = sf_builder.SimpleFormBuilder()
     v = np.array([1, 2, 3])
     builder.add_param("v", "v", v)
     assert np.array_equal(builder.params["v"], v)
 
 def test_numpy_check_all_explicit():
-    builder = SimpleFormBuilder()
+    builder = sf_builder.SimpleFormBuilder()
     v1 = np.array([10, 20, 30])
     v2 = np.array([5, 15, 25])
     builder.add_param("v1", "v_1", v1)
@@ -22,7 +22,7 @@ def test_numpy_check_all_explicit():
     assert builder.steps[-1]["result"] == True
 
 def test_numpy_check_implicit_all():
-    builder = SimpleFormBuilder()
+    builder = sf_builder.SimpleFormBuilder()
     v1 = np.array([10, 20, 30])
     v2 = np.array([5, 15, 25])
     builder.add_param("v1", "v_1", v1)
@@ -34,7 +34,7 @@ def test_numpy_check_implicit_all():
     assert builder.steps[-1]["result"] == True
 
 def test_numpy_check_fail():
-    builder = SimpleFormBuilder()
+    builder = sf_builder.SimpleFormBuilder()
     v1 = np.array([10, 20, 30])
     v2 = np.array([5, 25, 25]) # 20 < 25, so second element fails
     builder.add_param("v1", "v_1", v1)
@@ -45,7 +45,7 @@ def test_numpy_check_fail():
     assert builder.steps[-1]["result"] == False
 
 def test_numpy_equation():
-    builder = SimpleFormBuilder()
+    builder = sf_builder.SimpleFormBuilder()
     v = np.array([1, 2, 3])
     builder.add_param("v", "v", v)
     builder.add_equation("v2", "v^2", "v**2")
@@ -55,7 +55,7 @@ def test_numpy_equation():
     assert np.array_equal(builder.params["v2"], expected)
 
 def test_report_numpy():
-    builder = SimpleFormBuilder()
+    builder = sf_builder.SimpleFormBuilder()
     v = np.array([1.1, 2.2])
     builder.add_param("v", "v", v)
     builder.evaluate()
