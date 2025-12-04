@@ -155,3 +155,25 @@ def test_latex_rendering():
     assert r"\frac{T_{max}}{\mu}" in report
     assert r"\mu" in report
 
+def test_getitem_access():
+    builder = SimpleFormBuilder()
+    u = builder.ureg
+    
+    builder.add_param("sigma", "\\sigma", 100 * u.MPa)
+    builder.add_equation("force", "F", "sigma * 2 * u.cm**2", unit=u.N)
+    
+    builder.evaluate()
+    
+    # Test access to param
+    assert builder["sigma"] == 100 * u.MPa
+    
+    # Test access to equation result
+    # 100 MPa * 2 cm^2 = 100 N/mm^2 * 200 mm^2 = 20000 N = 20 kN
+    # 100 * 10^6 Pa * 2 * (10^-2 m)^2 = 100 * 10^6 * 2 * 10^-4 = 200 * 10^2 = 20000 N
+    assert builder["force"].magnitude == pytest.approx(20000)
+    assert builder["force"].units == u.N
+    
+    # Test KeyError
+    with pytest.raises(KeyError):
+        _ = builder["non_existent"]
+

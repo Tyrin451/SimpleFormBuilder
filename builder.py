@@ -150,6 +150,12 @@ class SimpleFormBuilder:
                 except Exception as e:
                      raise RuntimeError(f"Error evaluating check '{step['desc']}': {e}")
 
+    def __getitem__(self, key: str) -> Any:
+        """
+        Allows dictionary-style access to parameters and results.
+        """
+        return self.params[key]
+
     def report(self, row_templates: Optional[Dict[str, str]] = None) -> str:
         """
         Generates the LaTeX report.
