@@ -168,7 +168,7 @@ class SimpleFormBuilder:
         default_templates = {
             "param": r"{symbol} &= {value} && \text{{{desc}}} \\",
             "eq": r"{symbol} &= {expr} = {value} && \text{{{desc}}} \\",
-            "check": r"\text{{{name}}} &: {expr} \rightarrow {status} && \text{{{desc}}} \\"
+            "check": r"\text{{{name}}} : &&& \text{{{desc}}} \\ & {expr} \rightarrow {status} &&  \\"
         }
         
         templates = default_templates.copy()
@@ -183,22 +183,24 @@ class SimpleFormBuilder:
                 f_str = f"{{:{fmt_spec}}}"
             else:
                 f_str = f"{{:.{self.precision}f}}"
-            
             if isinstance(val, pint.Quantity):
                 mag = val.magnitude
                 # Format magnitude
                 if isinstance(mag, np.ndarray):
                     #  mag_str = np.array2string(mag, precision=self.precision, separator=', ')
-                     mag_str = r'\begin{bmatrix}'+np.array2string(mag, precision=self.precision, separator=r'\\').strip("[]") + r'\end{bmatrix}'
+                    mag_str = r'\begin{bmatrix}' + np.array2string(mag, precision=self.precision, separator=r'\\', formatter={'float_kind' : lambda x : f_str.format(x)}).strip("[]") + r'\end{bmatrix}'
                 else:
                     mag_str = f_str.format(mag)
                 # Format unit (using pint's latex support or simple string)
                 unit_str = rf"\ {val.units:~L}" # ~L for compact latex
-                return f"{mag_str}{unit_str}"
+                return f"{mag_str}{unit_str}".replace("%", r"\%")
             elif isinstance(val, (int, float)):
-                return f_str.format(val)
+                return f_str.format(val).replace("%", r"\%")
             elif isinstance(val, np.ndarray):
-                return np.array2string(val, precision=self.precision, separator=', ')
+                return np.array2string(val, 
+                    precision=self.precision, 
+                    separator=', ', 
+                    formatter={'float_kind' : lambda x : f_str.format(x)})
             else:
                 return str(val)
 
@@ -242,7 +244,7 @@ class SimpleFormBuilder:
                 data["expr"] = format_expr(step["expr"])
                 
             elif step["type"] == "check":
-                data["status"] = r"\textbf{\textcolor{green}{OK}}" if step.get("result") else r"\textbf{\textcolor{red}{FAIL}}"
+                data["status"] = r"\textbf{\textcolor{green}{OK}}" if step.get("result") else r"\textbf{\textcolor{red}{NOK}}"
                 
                 # Format expression with values
                 try:
