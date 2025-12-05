@@ -65,7 +65,7 @@ def test_checks():
     
     report = builder.report()
     assert "\\textbf{\\textcolor{green}{OK}}" in report
-    assert "\\textbf{\\textcolor{red}{FAIL}}" in report
+    assert "\\textbf{\\textcolor{red}{NOK}}" in report
 
 def test_hidden_variables():
     builder = sf_builder.SimpleFormBuilder()
@@ -202,6 +202,6 @@ def test_check_formatting():
     assert "0.1235" in report
     
     # Percent check should show 12.35%
-    assert "12.35%" in report
+    assert "12.35\%" in report
 
 

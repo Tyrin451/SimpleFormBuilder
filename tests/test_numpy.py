@@ -57,7 +57,7 @@ def test_numpy_equation():
 def test_report_numpy():
     builder = sf_builder.SimpleFormBuilder()
     v = np.array([1.1, 2.2])
-    builder.add_param("v", "v", v)
+    builder.add_param("v", "v", v, fmt=".1f")
     builder.evaluate()
     report = builder.report()
     assert "[1.1, 2.2]" in report or "[1.1, 2.2 ]" in report # spacing might vary
