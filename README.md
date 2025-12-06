@@ -119,3 +119,26 @@ Exécute tous les calculs et vérifications dans l'ordre où ils ont été ajout
 #### `report(row_templates=None)`
 Génère le code LaTeX du rapport.
 - `row_templates` : Dictionnaire optionnel pour personnaliser le formatage des lignes (`param`, `eq`, `check`).
+
+#### `lambdify_equation(name)`
+Génère une fonction Python exécutable à partir d'une équation enregistrée, optimisée pour `pandas`.
+- `name` : Nom de l'équation à convertir.
+- **Retourne** : Une fonction qui accepte un DataFrame (ou dictionnaire) et retourne le résultat calculé.
+    - Utilise les colonnes du DataFrame si elles correspondent aux variables de l'équation.
+    - Utilise les paramètres du `builder` pour les variables manquantes.
+    - Gère automatiquement les unités `pint` et la vectorisation.
+
+**Exemple d'utilisation avec Pandas :**
+```python
+# Supposons une équation "sigma" = "Fx / A" définie dans le builder
+calc_sigma = builder.lambdify_equation("sigma")
+
+# Création d'un DataFrame avec des valeurs variables pour Fx
+import pandas as pd
+df = pd.DataFrame({
+    'Fx': [10, 20, 30] * u.kN
+})
+
+# Ajout de la colonne calculée (A est pris dans les paramètres du builder)
+df = df.assign(sigma_new = calc_sigma)
+```

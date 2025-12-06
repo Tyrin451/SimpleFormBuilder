@@ -151,6 +151,72 @@ class SimpleFormBuilder:
                 except Exception as e:
                      raise RuntimeError(f"Error evaluating check '{step['desc']}': {e}")
 
+    def lambdify_equation(self, name: str) -> Any:
+        """
+        Creates a function from the specified equation compatible with pandas.DataFrame.assign.
+        
+        The returned function accepts a DataFrame/dict. It resolves variables in the following order:
+        1. From the provided DataFrame columns (if keys exist).
+        2. From the builder's parameters/results (self.params).
+        """
+        # Find the equation step
+        eq_step = None
+        for step in self.steps:
+            if step.get("type") == "eq" and step.get("name") == name:
+                eq_step = step
+                break
+        
+        if not eq_step:
+            raise KeyError(f"Equation '{name}' not found.")
+            
+        expr_str = eq_step["expr"]
+        
+        # Parse expression to identify symbols
+        # We use simple symbol extraction.
+        # Note: we need to handle functions like sin/cos if present, but sympy.lambdify handles them.
+        import sympy
+        
+        # Use existing context keys as potential symbols, plus any in expr 
+        # (though ideally all variables should be in params/symbols)
+        local_dict = {k: sympy.Symbol(k) for k in self.params.keys()}
+        try:
+             sym_expr = sympy.sympify(expr_str, locals=local_dict)
+        except Exception as e:
+             # Fallback: parse without locals (it might auto-detect symbols)
+             sym_expr = sympy.sympify(expr_str)
+
+        free_symbols = list(sym_expr.free_symbols)
+        free_symbol_names = [str(s) for s in free_symbols]
+        
+        # Create lambdified function
+        # We use 'numpy' as backend to support array operations
+        # We include 'pint' awareness if possible? sympy.lambdify doesn't natively support pint.
+        # But if we pass Pint arrays to a numpy-lambdified function, it usually works 
+        # IF operations are standard (+, -, *, /) and numpy functions (np.sin).
+        # We rely on user providing valid inputs.
+        
+        # Note: we must map symbols to arguments.
+        f = sympy.lambdify(free_symbols, sym_expr, modules=["numpy", "math"])
+        
+        def wrapper(df):
+            # df can be DataFrame or dict-like
+            args = []
+            for name in free_symbol_names:
+                if name in df:
+                    # Use .values to get numpy array, avoiding issues with 
+                    # pandas Series * pint Quantity (which can fail broadcasting)
+                    val = df[name]
+                    if hasattr(val, "values"):
+                        val = val.values
+                    args.append(val)
+                elif name in self.params:
+                    args.append(self.params[name])
+                else:
+                    raise KeyError(f"Variable '{name}' required for equation '{expr_str}' not found in DataFrame or Builder parameters.")
+            return f(*args)
+            
+        return wrapper
+
     def __getitem__(self, key: str) -> Any:
         """
         Allows dictionary-style access to parameters and results.
