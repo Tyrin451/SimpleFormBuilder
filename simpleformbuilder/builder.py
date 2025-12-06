@@ -265,7 +265,7 @@ class SimpleFormBuilder:
         """
         return self.params[key]
 
-    def report(self, row_templates: Optional[Dict[str, str]] = None) -> str:
+    def report(self, row_templates: Optional[Dict[str, str]] = None, environment: str = "align*") -> str:
         """
         Generates the LaTeX report.
         
@@ -283,7 +283,7 @@ class SimpleFormBuilder:
         if row_templates:
             templates.update(row_templates)
 
-        lines = [r"\begin{align*}"]
+        lines = [f"\\begin{{{environment}}}"]
 
         # Helper to format value
         def format_value(val, fmt_spec):
@@ -394,5 +394,5 @@ class SimpleFormBuilder:
             except Exception as e:
                 lines.append(f"% Error rendering step {step.get('name')}: {e}")
 
-        lines.append(r"\end{align*}")
+        lines.append(f"\\end{{{environment}}}")
         return "\n".join(lines)
