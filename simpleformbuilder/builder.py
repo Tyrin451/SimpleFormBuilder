@@ -169,52 +169,94 @@ class SimpleFormBuilder:
         if not eq_step:
             raise KeyError(f"Equation '{name}' not found.")
             
-        expr_str = eq_step["expr"]
+        # 1. Resolve dependencies recursively
+        # Build a map of all equation expressions
+        eq_map = {s["name"]: s["expr"] for s in self.steps if s["type"] == "eq"}
         
-        # Parse expression to identify symbols
-        # We use simple symbol extraction.
-        # Note: we need to handle functions like sin/cos if present, but sympy.lambdify handles them.
         import sympy
-        
-        # Use existing context keys as potential symbols, plus any in expr 
-        # (though ideally all variables should be in params/symbols)
+        # Use simple symbol extraction first
         local_dict = {k: sympy.Symbol(k) for k in self.params.keys()}
-        try:
-             sym_expr = sympy.sympify(expr_str, locals=local_dict)
-        except Exception as e:
-             # Fallback: parse without locals (it might auto-detect symbols)
-             sym_expr = sympy.sympify(expr_str)
+        
+        def parse_expr(e_str):
+            try:
+                return sympy.sympify(e_str, locals=local_dict)
+            except:
+                return sympy.sympify(e_str)
+
+        sym_expr = parse_expr(eq_step["expr"])
+        
+        # Iteratively substitute equations until only params/inputs remain
+        # We rely on the fact that equations shouldn't have cycles (DAG)
+        MAX_ITER = 30
+        for _ in range(MAX_ITER):
+            free_names = [str(s) for s in sym_expr.free_symbols]
+            subs = {}
+            has_eq_sym = False
+            for fn in free_names:
+                if fn in eq_map and fn != name:
+                    # If it's an equation, we substitute it (unless it's recursive to itself?)
+                    # Note: We assume equation names shadow params if duplicate, 
+                    # but typically they are distinct.
+                    subs[sympy.Symbol(fn)] = parse_expr(eq_map[fn])
+                    has_eq_sym = True
+            
+            if not has_eq_sym:
+                break
+            
+            sym_expr = sym_expr.subs(subs)
 
         free_symbols = list(sym_expr.free_symbols)
         free_symbol_names = [str(s) for s in free_symbols]
         
         # Create lambdified function
-        # We use 'numpy' as backend to support array operations
-        # We include 'pint' awareness if possible? sympy.lambdify doesn't natively support pint.
-        # But if we pass Pint arrays to a numpy-lambdified function, it usually works 
-        # IF operations are standard (+, -, *, /) and numpy functions (np.sin).
-        # We rely on user providing valid inputs.
-        
-        # Note: we must map symbols to arguments.
+        # Use numpy backend. Pint usually interoperates well with numpy functions (sin/cos)
         f = sympy.lambdify(free_symbols, sym_expr, modules=["numpy", "math"])
         
+        target_unit = eq_step.get("unit")
+
         def wrapper(df):
             # df can be DataFrame or dict-like
             args = []
             for name in free_symbol_names:
                 if name in df:
-                    # Use .values to get numpy array, avoiding issues with 
-                    # pandas Series * pint Quantity (which can fail broadcasting)
+                    # Input from DataFrame/Dict
                     val = df[name]
+                    
+                    # Convert to numpy/values if possible to avoid Series index alignment issues
                     if hasattr(val, "values"):
                         val = val.values
+                    elif isinstance(val, (list, tuple)):
+                        val = np.array(val)
+                    
+                    # 2. Inject Units if applicable
+                    # If the parameter exists in self.params and has a unit, apply it
+                    # We assume the input in 'df' is the Magnitude of that unit.
+                    if name in self.params:
+                        default_val = self.params[name]
+                        if isinstance(default_val, pint.Quantity):
+                            # Multiply by units. 
+                            # If val is numpy array, result is Quantity array (object)
+                            val = val * default_val.units
+                            
                     args.append(val)
                 elif name in self.params:
+                    # Constant from params
                     args.append(self.params[name])
                 else:
-                    raise KeyError(f"Variable '{name}' required for equation '{expr_str}' not found in DataFrame or Builder parameters.")
-            return f(*args)
+                    raise KeyError(f"Variable '{name}' required for equation '{name}' (resolved) not found in DataFrame or Builder parameters.")
             
+            # Calculate
+            res = f(*args)
+            
+            # 3. Convert to target unit
+            if target_unit:
+                if isinstance(res, pint.Quantity):
+                    res = res.to(target_unit)
+                # If res is not a Quantity (e.g. unitless calculation), we might not want to force it
+                # unless we are sure. But 'add_equation' with unit implies expectation.
+                
+            return res
+        
         return wrapper
 
     def __getitem__(self, key: str) -> Any:
