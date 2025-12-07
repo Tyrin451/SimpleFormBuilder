@@ -5,6 +5,22 @@ import pint
 import sympy
 import numpy as np
 from typing import Any, Optional, List, Dict
+from .utils import security_check
+
+ALLOWED_LOCALS = {
+                "sqrt": sympy.sqrt,
+                "sin": sympy.sin,
+                "cos": sympy.cos,
+                "tan": sympy.tan,
+                "log": sympy.log,
+                "exp": sympy.exp,
+                "abs": sympy.Abs,
+                "min": sympy.Min,
+                "max": sympy.Max,
+                "pi": sympy.pi,
+                "all": sympy.Function("all"),
+                "any": sympy.Function("any"),
+            }
 
 class SimpleFormBuilder:
     """
@@ -26,11 +42,11 @@ class SimpleFormBuilder:
         """
         Registers a constant parameter.
         """
-        # 5. Sécurité et Robustesse : Validation des noms
+        # Sécurité et Robustesse : Validation des noms
         if not name.isidentifier():
             raise ValueError(f"Parameter name '{name}' must be a valid Python identifier.")
         
-        # 5. Sécurité et Robustesse : Gestion des types
+        # Sécurité et Robustesse : Gestion des types
         if not isinstance(value, (int, float, pint.Quantity, np.ndarray)):
              raise TypeError(f"Value for '{name}' must be int, float, pint.Quantity, or np.ndarray.")
 
@@ -51,88 +67,14 @@ class SimpleFormBuilder:
         """
         Registers an equation to be calculated.
         """
-        # 5. Sécurité et Robustesse : Validation des noms
-        if not name.isidentifier():
-            raise ValueError(f"Equation name '{name}' must be a valid Python identifier.")
-        
-        # Validation secouritaire stricte sur l'expression (avant parsing)
-        # On interdit les mots-clés dangereux et l'accès aux attributs privés
-        # Use regex to avoid false positives (e.g. 'os' in 'cos')
-        import re
-        forbidden = ["import", "lambda", "open", "eval", "exec", "compile", "input", "sys", "os"]
-        # Check for double underscore separately (not necessarily a word)
-        if "__" in expr:
-             raise ValueError(f"Expression '{expr}' contains forbidden substring '__'.")
-             
-        # Check for forbidden words
-        pattern = r"\b(" + "|".join(forbidden) + r")\b"
-        if re.search(pattern, expr):
-             raise ValueError(f"Expression '{expr}' contains forbidden keywords.")
+        try:
+            security_check(name, expr)
+        except ValueError as e:
+            raise ValueError(f"Equation '{name}' is invalid: {e}")
 
         self.symbols[name] = symbol
         
-        # Validation et compilation précoce avec SymPy
-        try:
-             # Définir le contexte autorisé pour le parsing
-            allowed_locals = {
-                "sqrt": sympy.sqrt,
-                "sin": sympy.sin,
-                "cos": sympy.cos,
-                "tan": sympy.tan,
-                "log": sympy.log,
-                "exp": sympy.exp,
-                "abs": sympy.Abs,
-                "min": sympy.Min,
-                "max": sympy.Max,
-                "pi": sympy.pi,
-                "all": sympy.Function("all"),
-                "any": sympy.Function("any"),
-            }
-            
-            valid_symbols = set(self.params.keys())
-            for step in self.steps:
-                if step.get("name"):
-                    valid_symbols.add(step["name"])
-
-            # Gestion des unités (u.meter -> UNIT_meter)
-            import re
-            
-            def unit_replacer(match):
-                unit_name = match.group(1)
-                # Vérifier si l'unité existe dans pint
-                if not hasattr(self.ureg, unit_name):
-                     # On pourrait valider plus strictement ici
-                     pass 
-                return f"UNIT_{unit_name}"
-
-            expr_processed = re.sub(r"\bu\.([a-zA-Z_]\w*)", unit_replacer, expr)
-            
-            used_units = re.findall(r"UNIT_([a-zA-Z_]\w*)", expr_processed)
-            for u_name in used_units:
-                sym_name = f"UNIT_{u_name}"
-                allowed_locals[sym_name] = sympy.Symbol(sym_name)
-
-            for sym_name in valid_symbols:
-                allowed_locals[sym_name] = sympy.Symbol(sym_name)
-
-            # Parsing sécurisé
-            sym_expr = sympy.sympify(expr_processed, locals=allowed_locals)
-            
-            # Validation stricte : vérifier que tous les symboles libres sont connus
-            # RELAXED: On autorise les symboles inconnus pour permettre lambdify (inputs externes)
-            # for sym in sym_expr.free_symbols:
-            #    s_name = str(sym)
-            #    if s_name not in allowed_locals:
-            #         raise ValueError(f"Unknown symbol '{sym}' in expression '{expr}'.")
-
-            # Compilation avec lambdify
-            args_syms = sorted(list(sym_expr.free_symbols), key=lambda s: str(s))
-            args_names = [str(s) for s in args_syms]
-            
-            compiled_func = sympy.lambdify(args_syms, sym_expr, modules=["numpy", "math"])
-
-        except Exception as e:
-            raise ValueError(f"Invalid or unsafe expression '{expr}': {e}")
+        compiled_func, args_names = self._compile_equation(name, expr)
 
         self.steps.append({
             "type": "eq",
@@ -151,67 +93,12 @@ class SimpleFormBuilder:
         """
         Adds a validation step.
         """
-        # Security Check
-        # Use regex to avoid false positives (e.g. 'os' in 'cos')
-        import re
-        forbidden = ["import", "lambda", "open", "eval", "exec", "compile", "input", "sys", "os"]
-        if "__" in expr:
-             raise ValueError(f"Check expression '{expr}' contains forbidden substring '__'.")
-             
-        pattern = r"\b(" + "|".join(forbidden) + r")\b"
-        if re.search(pattern, expr):
-             raise ValueError(f"Check expression '{expr}' contains forbidden keywords.")
-
         try:
-            allowed_locals = {
-                "sqrt": sympy.sqrt,
-                "sin": sympy.sin,
-                "cos": sympy.cos,
-                "tan": sympy.tan,
-                "log": sympy.log,
-                "exp": sympy.exp,
-                "abs": sympy.Abs,
-                "min": sympy.Min,
-                "max": sympy.Max,
-                "pi": sympy.pi,
-                "all": sympy.Function("all"),
-                "any": sympy.Function("any"),
-            }
-            
-            valid_symbols = set(self.params.keys())
-            for step in self.steps:
-                if step.get("name"):
-                    valid_symbols.add(step["name"])
-            
-            import re
-            def unit_replacer(match):
-                unit_name = match.group(1)
-                return f"UNIT_{unit_name}"
+            security_check(name, expr)
+        except ValueError as e:
+            raise ValueError(f"Check '{name}' is invalid: {e}")
 
-            expr_processed = re.sub(r"\bu\.([a-zA-Z_]\w*)", unit_replacer, expr)
-            
-            used_units = re.findall(r"UNIT_([a-zA-Z_]\w*)", expr_processed)
-            for u_name in used_units:
-                sym_name = f"UNIT_{u_name}"
-                allowed_locals[sym_name] = sympy.Symbol(sym_name)
-            
-            for sym_name in valid_symbols:
-                allowed_locals[sym_name] = sympy.Symbol(sym_name)
-
-            sym_expr = sympy.sympify(expr_processed, locals=allowed_locals)
-
-            # RELAXED: On autorise les symboles inconnus
-            # for sym in sym_expr.free_symbols:
-            #    if str(sym) not in allowed_locals:
-            #        raise ValueError(f"Unknown symbol '{sym}' in check '{expr}'.")
-
-            args_syms = sorted(list(sym_expr.free_symbols), key=lambda s: str(s))
-            args_names = [str(s) for s in args_syms]
-            
-            compiled_func = sympy.lambdify(args_syms, sym_expr, modules=["numpy", "math"])
-            
-        except Exception as e:
-             raise ValueError(f"Invalid check expression '{expr}': {e}")
+        compiled_func, args_names = self._compile_equation(name, expr)
 
         self.steps.append({
             "type": "check",
@@ -527,3 +414,58 @@ class SimpleFormBuilder:
 
         lines.append(f"\\end{{{environment}}}")
         return "\n".join(lines)
+
+    def _compile_equation(self, name: str, expr: str):
+        """
+        Compiles an equation expression using SymPy and lambdify.
+        Returns the compiled function and argument names.
+        """
+        try:
+            # Définir le contexte autorisé pour le parsing
+            allowed_locals = ALLOWED_LOCALS.copy()
+
+            valid_symbols = set(self.params.keys())
+            for step_item in self.steps:
+                if step_item.get("name"):
+                    valid_symbols.add(step_item["name"])
+
+            # Gestion des unités (u.meter -> UNIT_meter)
+            import re
+
+            def unit_replacer(match):
+                unit_name = match.group(1)
+                # Vérifier si l'unité existe dans pint
+                if not hasattr(self.ureg, unit_name):
+                    # On pourrait valider plus strictement ici
+                    pass
+                return f"UNIT_{unit_name}"
+
+            expr_processed = re.sub(r"\bu\.([a-zA-Z_]\w*)", unit_replacer, expr)
+
+            used_units = re.findall(r"UNIT_([a-zA-Z_]\w*)", expr_processed)
+            for u_name in used_units:
+                sym_name = f"UNIT_{u_name}"
+                allowed_locals[sym_name] = sympy.Symbol(sym_name)
+
+            for sym_name in valid_symbols:
+                allowed_locals[sym_name] = sympy.Symbol(sym_name)
+
+            # Parsing sécurisé
+            sym_expr = sympy.sympify(expr_processed, locals=allowed_locals)
+
+            # Validation stricte : vérifier que tous les symboles libres sont connus
+            # RELAXED: On autorise les symboles inconnus pour permettre lambdify (inputs externes)
+            # for sym in sym_expr.free_symbols:
+            #    s_name = str(sym)
+            #    if s_name not in allowed_locals:
+            #         raise ValueError(f"Unknown symbol '{sym}' in expression '{expr}'.")
+
+            # Compilation avec lambdify
+            args_syms = sorted(list(sym_expr.free_symbols), key=lambda s: str(s))
+            args_names = [str(s) for s in args_syms]
+
+            compiled_func = sympy.lambdify(args_syms, sym_expr, modules=["numpy", "math"])
+            return compiled_func, args_names
+
+        except Exception as e:
+            raise ValueError(f"Invalid or unsafe expression '{expr}' for '{name}': {e}")
