@@ -54,9 +54,83 @@ class SimpleFormBuilder:
         # 5. Sécurité et Robustesse : Validation des noms
         if not name.isidentifier():
             raise ValueError(f"Equation name '{name}' must be a valid Python identifier.")
+        
+        # Validation secouritaire stricte sur l'expression (avant parsing)
+        # On interdit les mots-clés dangereux et l'accès aux attributs privés
+        # Use regex to avoid false positives (e.g. 'os' in 'cos')
+        import re
+        forbidden = ["import", "lambda", "open", "eval", "exec", "compile", "input", "sys", "os"]
+        # Check for double underscore separately (not necessarily a word)
+        if "__" in expr:
+             raise ValueError(f"Expression '{expr}' contains forbidden substring '__'.")
+             
+        # Check for forbidden words
+        pattern = r"\b(" + "|".join(forbidden) + r")\b"
+        if re.search(pattern, expr):
+             raise ValueError(f"Expression '{expr}' contains forbidden keywords.")
 
         self.symbols[name] = symbol
         
+        # Validation et compilation précoce avec SymPy
+        try:
+             # Définir le contexte autorisé pour le parsing
+            allowed_locals = {
+                "sqrt": sympy.sqrt,
+                "sin": sympy.sin,
+                "cos": sympy.cos,
+                "tan": sympy.tan,
+                "log": sympy.log,
+                "exp": sympy.exp,
+                "abs": sympy.Abs,
+                "min": sympy.Min,
+                "max": sympy.Max,
+                "pi": sympy.pi,
+            }
+            
+            valid_symbols = set(self.params.keys())
+            for step in self.steps:
+                if step.get("name"):
+                    valid_symbols.add(step["name"])
+
+            # Gestion des unités (u.meter -> UNIT_meter)
+            import re
+            
+            def unit_replacer(match):
+                unit_name = match.group(1)
+                # Vérifier si l'unité existe dans pint
+                if not hasattr(self.ureg, unit_name):
+                     # On pourrait valider plus strictement ici
+                     pass 
+                return f"UNIT_{unit_name}"
+
+            expr_processed = re.sub(r"\bu\.([a-zA-Z_]\w*)", unit_replacer, expr)
+            
+            used_units = re.findall(r"UNIT_([a-zA-Z_]\w*)", expr_processed)
+            for u_name in used_units:
+                sym_name = f"UNIT_{u_name}"
+                allowed_locals[sym_name] = sympy.Symbol(sym_name)
+
+            for sym_name in valid_symbols:
+                allowed_locals[sym_name] = sympy.Symbol(sym_name)
+
+            # Parsing sécurisé
+            sym_expr = sympy.sympify(expr_processed, locals=allowed_locals)
+            
+            # Validation stricte : vérifier que tous les symboles libres sont connus
+            for sym in sym_expr.free_symbols:
+                s_name = str(sym)
+                if s_name not in allowed_locals:
+                     raise ValueError(f"Unknown symbol '{sym}' in expression '{expr}'.")
+
+            # Compilation avec lambdify
+            args_syms = sorted(list(sym_expr.free_symbols), key=lambda s: str(s))
+            args_names = [str(s) for s in args_syms]
+            
+            compiled_func = sympy.lambdify(args_syms, sym_expr, modules=["numpy", "math"])
+
+        except Exception as e:
+            raise ValueError(f"Invalid or unsafe expression '{expr}': {e}")
+
         self.steps.append({
             "type": "eq",
             "name": name,
@@ -65,19 +139,82 @@ class SimpleFormBuilder:
             "unit": unit,
             "desc": desc,
             "hidden": hidden,
-            "fmt": fmt
+            "fmt": fmt,
+            "compiled_func": compiled_func,
+            "args_names": args_names
         })
 
     def add_check(self, expr: str, desc: str, name: str = "Check", fmt: str = None):
         """
         Adds a validation step.
         """
+        # Security Check
+        # Use regex to avoid false positives (e.g. 'os' in 'cos')
+        import re
+        forbidden = ["import", "lambda", "open", "eval", "exec", "compile", "input", "sys", "os"]
+        if "__" in expr:
+             raise ValueError(f"Check expression '{expr}' contains forbidden substring '__'.")
+             
+        pattern = r"\b(" + "|".join(forbidden) + r")\b"
+        if re.search(pattern, expr):
+             raise ValueError(f"Check expression '{expr}' contains forbidden keywords.")
+
+        try:
+            allowed_locals = {
+                "sqrt": sympy.sqrt,
+                "sin": sympy.sin,
+                "cos": sympy.cos,
+                "tan": sympy.tan,
+                "log": sympy.log,
+                "exp": sympy.exp,
+                "abs": sympy.Abs,
+                "min": sympy.Min,
+                "max": sympy.Max,
+                "pi": sympy.pi,
+            }
+            
+            valid_symbols = set(self.params.keys())
+            for step in self.steps:
+                if step.get("name"):
+                    valid_symbols.add(step["name"])
+            
+            import re
+            def unit_replacer(match):
+                unit_name = match.group(1)
+                return f"UNIT_{unit_name}"
+
+            expr_processed = re.sub(r"\bu\.([a-zA-Z_]\w*)", unit_replacer, expr)
+            
+            used_units = re.findall(r"UNIT_([a-zA-Z_]\w*)", expr_processed)
+            for u_name in used_units:
+                sym_name = f"UNIT_{u_name}"
+                allowed_locals[sym_name] = sympy.Symbol(sym_name)
+            
+            for sym_name in valid_symbols:
+                allowed_locals[sym_name] = sympy.Symbol(sym_name)
+
+            sym_expr = sympy.sympify(expr_processed, locals=allowed_locals)
+
+            for sym in sym_expr.free_symbols:
+                if str(sym) not in allowed_locals:
+                    raise ValueError(f"Unknown symbol '{sym}' in check '{expr}'.")
+
+            args_syms = sorted(list(sym_expr.free_symbols), key=lambda s: str(s))
+            args_names = [str(s) for s in args_syms]
+            
+            compiled_func = sympy.lambdify(args_syms, sym_expr, modules=["numpy", "math"])
+            
+        except Exception as e:
+             raise ValueError(f"Invalid check expression '{expr}': {e}")
+
         self.steps.append({
             "type": "check",
             "name": name,
             "expr": expr,
             "desc": desc,
-            "fmt": fmt
+            "fmt": fmt,
+            "compiled_func": compiled_func,
+            "args_names": args_names
         })
 
     def evaluate(self):
@@ -85,51 +222,45 @@ class SimpleFormBuilder:
         Executes all registered calculations sequentially.
         """
         # 3.2.4 evaluate - Contexte d'évaluation
-        # Prepare evaluation context with standard math functions and current params
         import math
         
-        context = {
-            "sqrt": np.sqrt,
-            "sin": np.sin,
-            "cos": np.cos,
-            "tan": np.tan,
-            "pi": np.pi,
-            "log": np.log,
-            "exp": np.exp,
-            "abs": abs,
-            "min": min,
-            "max": max,
-            "all": all,
-            "any": any,
-            "u": self.ureg, # Access to units via 'u' (common convention)
-            **self.params
-        }
+        # Helper to resolve arguments
+        def get_arg_value(arg_name):
+            if arg_name.startswith("UNIT_"):
+                unit_name = arg_name[5:]
+                # Resolve unit
+                if hasattr(self.ureg, unit_name):
+                    return getattr(self.ureg, unit_name)
+                elif unit_name in self.ureg:
+                    return self.ureg[unit_name]
+                else:
+                    raise ValueError(f"Unknown unit '{unit_name}' needed for calculation.")
+            elif arg_name in self.params:
+                return self.params[arg_name]
+            else:
+                 raise KeyError(f"Variable '{arg_name}' not found.")
 
         for step in self.steps:
             if step["type"] == "eq":
                 try:
-                    # 3.2.4 evaluate - 2. Evaluer expr
-                    result = eval(step["expr"], {"__builtins__": {}}, context)
+                    compiled_func = step["compiled_func"]
+                    args_names = step["args_names"]
+                    
+                    args = [get_arg_value(arg) for arg in args_names]
+                    
+                    # 3.2.4 evaluate - 2. Evaluer
+                    result = compiled_func(*args)
                     
                     # 3.2.4 evaluate - 4. Conversion d'unité
                     if step["unit"]:
                         if isinstance(result, pint.Quantity):
                             result = result.to(step["unit"])
                         else:
-                             # If result is scalar but unit is requested, assume it's that unit? 
-                             # Or raise error? Spec says "converti dans cette unité".
-                             # Usually implies result should be Quantity.
-                             # Let's assume result is Quantity if units are involved.
-                             # If result is just number, we might want to attach unit?
-                             # Spec: "Si fournie, le résultat calculé doit être converti dans cette unité."
                              result = self.ureg.Quantity(result, step["unit"])
 
                     # 3.2.4 evaluate - 5. Stocker le résultat
                     self.params[step["name"]] = result
                     step["result"] = result
-                    
-                    # Update context for next steps
-                    context[step["name"]] = result
                     
                 except ZeroDivisionError:
                     raise ZeroDivisionError(f"Division by zero in equation '{step['name']}': {step['expr']}")
@@ -140,14 +271,19 @@ class SimpleFormBuilder:
 
             elif step["type"] == "check":
                 try:
+                    compiled_func = step["compiled_func"]
+                    args_names = step["args_names"]
+                    
+                    args = [get_arg_value(arg) for arg in args_names]
+                    
                     # 3.2.4 evaluate - 2. Evaluer expr (booléen)
-                    result = eval(step["expr"], {"__builtins__": {}}, context)
+                    result = compiled_func(*args)
                     
                     # Handle numpy array results
                     if isinstance(result, np.ndarray):
                         step["result"] = bool(result.all())
                     else:
-                        step["result"] = result # Boolean
+                        step["result"] = bool(result)
                 except Exception as e:
                      raise RuntimeError(f"Error evaluating check '{step['desc']}': {e}")
 
