@@ -4,6 +4,7 @@
 import pint
 import sympy
 import numpy as np
+import re
 from typing import Any, Optional, List, Dict
 from .utils import security_check
 
@@ -22,18 +23,11 @@ ALLOWED_LOCALS = {
                 "any": sympy.Function("any"),
             }
 
-class SimpleFormBuilder:
+class CalculationGraph:
     """
-    Builder pattern for creating physical calculation reports.
+    Manages the structure of parameters, equations, and checks.
     """
-
     def __init__(self):
-        """
-        Initializes the builder with unit registry and data structures.
-        """
-        # 3.1 Initialisation
-        self.ureg = pint.UnitRegistry()
-        self.precision = 2  # Default precision
         self.params: Dict[str, Any] = {}
         self.symbols: Dict[str, str] = {}
         self.steps: List[Dict[str, Any]] = []
@@ -74,7 +68,8 @@ class SimpleFormBuilder:
 
         self.symbols[name] = symbol
         
-        compiled_func, args_names = self._compile_equation(name, expr)
+        # Validation of cycles could be done here (optional placeholder)
+        self.validate_graph(current_node=name, dependencies=self._extract_deps(expr))
 
         self.steps.append({
             "type": "eq",
@@ -85,8 +80,8 @@ class SimpleFormBuilder:
             "desc": desc,
             "hidden": hidden,
             "fmt": fmt,
-            "compiled_func": compiled_func,
-            "args_names": args_names
+            "compiled_func": None, # Delayed compilation
+            "args_names": []
         })
 
     def add_check(self, expr: str, desc: str, name: str = "Check", fmt: str = None):
@@ -98,7 +93,8 @@ class SimpleFormBuilder:
         except ValueError as e:
             raise ValueError(f"Check '{name}' is invalid: {e}")
 
-        compiled_func, args_names = self._compile_equation(name, expr)
+        # Validation of cycles (optional placeholder)
+        self.validate_graph(current_node=name, dependencies=self._extract_deps(expr))
 
         self.steps.append({
             "type": "check",
@@ -106,11 +102,32 @@ class SimpleFormBuilder:
             "expr": expr,
             "desc": desc,
             "fmt": fmt,
-            "compiled_func": compiled_func,
-            "args_names": args_names
+            "compiled_func": None, # Delayed compilation
+            "args_names": []
         })
 
-    def evaluate(self):
+    def validate_graph(self, current_node: str, dependencies: List[str]):
+        """
+        Validates the absence of cycles in the calculation graph.
+        Currently a placeholder.
+        """
+        # TODO: Implement cycle detection logic
+        pass
+
+    def _extract_deps(self, expr: str) -> List[str]:
+         # Rough extraction for placeholder validation
+         # This is not perfect but serves the placeholder purpose
+         return re.findall(r'\b[a-zA-Z_]\w*\b', expr)
+
+
+class CalculationEngine:
+    """
+    Handles calculation execution and evaluation.
+    """
+    def __init__(self, ureg: Optional[pint.UnitRegistry] = None):
+        self.ureg = ureg if ureg else pint.UnitRegistry()
+
+    def evaluate(self, graph: CalculationGraph):
         """
         Executes all registered calculations sequentially.
         """
@@ -128,14 +145,19 @@ class SimpleFormBuilder:
                     return self.ureg[unit_name]
                 else:
                     raise ValueError(f"Unknown unit '{unit_name}' needed for calculation.")
-            elif arg_name in self.params:
-                return self.params[arg_name]
+            elif arg_name in graph.params:
+                return graph.params[arg_name]
             else:
                  raise KeyError(f"Variable '{arg_name}' not found.")
 
-        for step in self.steps:
+        for step in graph.steps:
             if step["type"] == "eq":
                 try:
+                    if step["compiled_func"] is None:
+                         compiled_func, args_names = self._compile_equation(step["name"], step["expr"], graph)
+                         step["compiled_func"] = compiled_func
+                         step["args_names"] = args_names
+
                     compiled_func = step["compiled_func"]
                     args_names = step["args_names"]
                     
@@ -152,7 +174,7 @@ class SimpleFormBuilder:
                              result = self.ureg.Quantity(result, step["unit"])
 
                     # 3.2.4 evaluate - 5. Stocker le résultat
-                    self.params[step["name"]] = result
+                    graph.params[step["name"]] = result
                     step["result"] = result
                     
                 except ZeroDivisionError:
@@ -164,6 +186,11 @@ class SimpleFormBuilder:
 
             elif step["type"] == "check":
                 try:
+                    if step["compiled_func"] is None:
+                         compiled_func, args_names = self._compile_equation(step["name"], step["expr"], graph)
+                         step["compiled_func"] = compiled_func
+                         step["args_names"] = args_names
+
                     compiled_func = step["compiled_func"]
                     args_names = step["args_names"]
                     
@@ -180,31 +207,26 @@ class SimpleFormBuilder:
                 except Exception as e:
                      raise RuntimeError(f"Error evaluating check '{step['desc']}': {e}")
 
-    def lambdify_equation(self, name: str) -> Any:
+    def lambdify_equation(self, graph: CalculationGraph, name: str) -> Any:
         """
         Creates a function from the specified equation compatible with pandas.DataFrame.assign.
-        
-        The returned function accepts a DataFrame/dict. It resolves variables in the following order:
-        1. From the provided DataFrame columns (if keys exist).
-        2. From the builder's parameters/results (self.params).
         """
         # Find the equation step
         eq_step = None
-        for step in self.steps:
+        for step in graph.steps:
             if step.get("type") == "eq" and step.get("name") == name:
                 eq_step = step
                 break
         
         if not eq_step:
             raise KeyError(f"Equation '{name}' not found.")
-            
-        # 1. Resolve dependencies recursively
-        # Build a map of all equation expressions
-        eq_map = {s["name"]: s["expr"] for s in self.steps if s["type"] == "eq"}
+        
+        # Build a map of all equation expressions (for recursive substitution if needed, mainly for context)
+        # eq_map = {s["name"]: s["expr"] for s in graph.steps if s["type"] == "eq"}
         
         import sympy
         # Use simple symbol extraction first
-        local_dict = {k: sympy.Symbol(k) for k in self.params.keys()}
+        local_dict = {k: sympy.Symbol(k) for k in graph.params.keys()}
         
         def parse_expr(e_str):
             try:
@@ -214,20 +236,11 @@ class SimpleFormBuilder:
 
         sym_expr = parse_expr(eq_step["expr"])
         
-        sim_expr = parse_expr(eq_step["expr"])
-        
-        # We do NOT substitute equations recursively anymore.
-        # This allows the user to override intermediate variables in the DataFrame.
-        # If an intermediate variable is missing from DF, it will be fetched from self.params.
-        # This satisfies test_lambdify_dependency_chain.
-        
-        sym_expr = sim_expr
-
+        # free_symbols
         free_symbols = list(sym_expr.free_symbols)
         free_symbol_names = [str(s) for s in free_symbols]
         
         # Create lambdified function
-        # Use numpy backend. Pint usually interoperates well with numpy functions (sin/cos)
         f = sympy.lambdify(free_symbols, sym_expr, modules=["numpy", "math"])
         
         target_unit = eq_step.get("unit")
@@ -240,26 +253,23 @@ class SimpleFormBuilder:
                     # Input from DataFrame/Dict
                     val = df[name]
                     
-                    # Convert to numpy/values if possible to avoid Series index alignment issues
+                    # Convert to numpy/values if possible
                     if hasattr(val, "values"):
                         val = val.values
                     elif isinstance(val, (list, tuple)):
                         val = np.array(val)
                     
                     # 2. Inject Units if applicable
-                    # If the parameter exists in self.params and has a unit, apply it
-                    # We assume the input in 'df' is the Magnitude of that unit.
-                    if name in self.params:
-                        default_val = self.params[name]
+                    if name in graph.params:
+                        default_val = graph.params[name]
                         if isinstance(default_val, pint.Quantity):
                             # Multiply by units. 
-                            # If val is numpy array, result is Quantity array (object)
                             val = val * default_val.units
                             
                     args.append(val)
-                elif name in self.params:
+                elif name in graph.params:
                     # Constant from params
-                    args.append(self.params[name])
+                    args.append(graph.params[name])
                 else:
                     raise KeyError(f"Variable '{name}' required for equation '{name}' (resolved) not found in DataFrame or Builder parameters.")
             
@@ -270,26 +280,65 @@ class SimpleFormBuilder:
             if target_unit:
                 if isinstance(res, pint.Quantity):
                     res = res.to(target_unit)
-                # If res is not a Quantity (e.g. unitless calculation), we might not want to force it
-                # unless we are sure. But 'add_equation' with unit implies expectation.
                 
             return res
         
         return wrapper
 
-    def __getitem__(self, key: str) -> Any:
+    def _compile_equation(self, name: str, expr: str, graph: CalculationGraph):
         """
-        Allows dictionary-style access to parameters and results.
+        Compiles an equation expression using SymPy and lambdify.
         """
-        return self.params[key]
+        try:
+            # Définir le contexte autorisé pour le parsing
+            allowed_locals = ALLOWED_LOCALS.copy()
 
-    def report(self, row_templates: Optional[Dict[str, str]] = None, environment: str = "align*") -> str:
+            valid_symbols = set(graph.params.keys())
+            for step_item in graph.steps:
+                if step_item.get("name"):
+                    valid_symbols.add(step_item["name"])
+
+            # Gestion des unités (u.meter -> UNIT_meter)
+            def unit_replacer(match):
+                unit_name = match.group(1)
+                if not hasattr(self.ureg, unit_name):
+                    pass
+                return f"UNIT_{unit_name}"
+
+            expr_processed = re.sub(r"\bu\.([a-zA-Z_]\w*)", unit_replacer, expr)
+
+            used_units = re.findall(r"UNIT_([a-zA-Z_]\w*)", expr_processed)
+            for u_name in used_units:
+                sym_name = f"UNIT_{u_name}"
+                allowed_locals[sym_name] = sympy.Symbol(sym_name)
+
+            for sym_name in valid_symbols:
+                allowed_locals[sym_name] = sympy.Symbol(sym_name)
+
+            # Parsing sécurisé
+            sym_expr = sympy.sympify(expr_processed, locals=allowed_locals)
+
+            # Compilation avec lambdify
+            args_syms = sorted(list(sym_expr.free_symbols), key=lambda s: str(s))
+            args_names = [str(s) for s in args_syms]
+
+            compiled_func = sympy.lambdify(args_syms, sym_expr, modules=["numpy", "math"])
+            return compiled_func, args_names
+
+        except Exception as e:
+            raise ValueError(f"Invalid or unsafe expression '{expr}' for '{name}': {e}")
+
+
+class LaTeXFormatter:
+    """
+    Dedicated format and generation of the LaTeX report.
+    """
+    def __init__(self, precision: int = 2):
+        self.precision = precision
+
+    def report(self, graph: CalculationGraph, row_templates: Optional[Dict[str, str]] = None, environment: str = "align*") -> str:
         """
         Generates the LaTeX report.
-        
-        Args:
-            row_templates: Optional dictionary to override default row templates.
-                           Keys: 'param', 'eq', 'check'.
         """
         default_templates = {
             "param": r"{symbol} &= {value} && \text{{{desc}}} \\",
@@ -313,7 +362,6 @@ class SimpleFormBuilder:
                 mag = val.magnitude
                 # Format magnitude
                 if isinstance(mag, np.ndarray):
-                    #  mag_str = np.array2string(mag, precision=self.precision, separator=', ')
                     mag_str = r'\begin{bmatrix}' + np.array2string(mag, precision=self.precision, separator=r'\\', formatter={'float_kind' : lambda x : f_str.format(x)}).strip("[]") + r'\end{bmatrix}'
                 else:
                     mag_str = f_str.format(mag)
@@ -332,24 +380,21 @@ class SimpleFormBuilder:
 
         # Helper to format expression to LaTeX
         def format_expr(expr_str):
-            # Use sympy to parse and convert to latex
-            # We need to substitute variable names with their latex symbols
             try:
-                # Create locals dict to prevent sympy from interpreting params as functions (e.g. N)
-                local_dict = {name: sympy.Symbol(name) for name in self.params.keys()}
+                # Create locals dict
+                local_dict = {name: sympy.Symbol(name) for name in graph.params.keys()}
                 
                 sym_expr = sympy.sympify(expr_str, locals=local_dict, evaluate=False)
                 
                 # Create a symbol_names dict for latex generation
-                # This maps Symbol objects to their latex string representation
-                symbol_names = {sympy.Symbol(name): sym for name, sym in self.symbols.items()}
+                symbol_names = {sympy.Symbol(name): sym for name, sym in graph.symbols.items()}
                 
                 return sympy.latex(sym_expr, symbol_names=symbol_names)
             except Exception as e:
-                # Fallback if parsing fails
+                # Fallback
                 return expr_str.replace("**", "^").replace("*", r"\cdot ")
         
-        for step in self.steps:
+        for step in graph.steps:
             if step.get("hidden", False):
                 continue
             
@@ -375,7 +420,7 @@ class SimpleFormBuilder:
                 # Format expression with values
                 try:
                     # Create locals dict
-                    local_dict = {name: sympy.Symbol(name) for name in self.params.keys()}
+                    local_dict = {name: sympy.Symbol(name) for name in graph.params.keys()}
                     
                     sym_expr = sympy.sympify(step["expr"], locals=local_dict, evaluate=False)
                     if not step.get("result"):
@@ -383,14 +428,14 @@ class SimpleFormBuilder:
                     subs = {}
                     for sym in sym_expr.free_symbols:
                         sym_name = str(sym)
-                        if sym_name in self.params:
-                            val = self.params[sym_name]
-                            latex_sym = self.symbols.get(sym_name, sym_name)
+                        if sym_name in graph.params:
+                            val = graph.params[sym_name]
+                            latex_sym = graph.symbols.get(sym_name, sym_name)
                             
                             # Priority: check step fmt > variable step fmt > default
                             fmt = step.get("fmt")
                             if fmt is None:
-                                for s in self.steps:
+                                for s in graph.steps:
                                     if s.get("name") == sym_name:
                                         fmt = s.get("fmt")
                                         break
@@ -401,7 +446,7 @@ class SimpleFormBuilder:
                     
                     data["expr"] = sympy.latex(sym_expr.subs(subs))
                 except Exception as e:
-                    print(f"Error formatting check expression: {e}")
+                    # print(f"Error formatting check expression: {e}")
                     data["expr"] = format_expr(step["expr"])
 
             try:
@@ -415,57 +460,85 @@ class SimpleFormBuilder:
         lines.append(f"\\end{{{environment}}}")
         return "\n".join(lines)
 
-    def _compile_equation(self, name: str, expr: str):
+
+class SimpleFormBuilder:
+    """
+    Facade for creating physical calculation reports, orchestrating Graph, Engine and Formatter.
+    """
+
+    def __init__(self):
         """
-        Compiles an equation expression using SymPy and lambdify.
-        Returns the compiled function and argument names.
+        Initializes the builder composition.
         """
-        try:
-            # Définir le contexte autorisé pour le parsing
-            allowed_locals = ALLOWED_LOCALS.copy()
+        self.graph = CalculationGraph()
+        self.engine = CalculationEngine()
+        self.formatter = LaTeXFormatter()
 
-            valid_symbols = set(self.params.keys())
-            for step_item in self.steps:
-                if step_item.get("name"):
-                    valid_symbols.add(step_item["name"])
+    @property
+    def ureg(self):
+        return self.engine.ureg
 
-            # Gestion des unités (u.meter -> UNIT_meter)
-            import re
+    @property
+    def params(self):
+        return self.graph.params
 
-            def unit_replacer(match):
-                unit_name = match.group(1)
-                # Vérifier si l'unité existe dans pint
-                if not hasattr(self.ureg, unit_name):
-                    # On pourrait valider plus strictement ici
-                    pass
-                return f"UNIT_{unit_name}"
+    @property
+    def symbols(self):
+        return self.graph.symbols
+    
+    @property
+    def steps(self):
+        return self.graph.steps
+    
+    @property
+    def precision(self):
+        return self.formatter.precision
+    
+    @precision.setter
+    def precision(self, value):
+        self.formatter.precision = value
 
-            expr_processed = re.sub(r"\bu\.([a-zA-Z_]\w*)", unit_replacer, expr)
+    def add_param(self, name: str, symbol: str, value: Any, desc: str = "", hidden: bool = False, fmt: str = None):
+        """
+        Registers a constant parameter.
+        """
+        self.graph.add_param(name, symbol, value, desc, hidden, fmt)
 
-            used_units = re.findall(r"UNIT_([a-zA-Z_]\w*)", expr_processed)
-            for u_name in used_units:
-                sym_name = f"UNIT_{u_name}"
-                allowed_locals[sym_name] = sympy.Symbol(sym_name)
+    def add_equation(self, name: str, symbol: str, expr: str, unit: Any = None, desc: str = "", hidden: bool = False, fmt: str = None):
+        """
+        Registers an equation to be calculated.
+        """
+        self.graph.add_equation(name, symbol, expr, unit, desc, hidden, fmt)
+        # Compatibility: Pre-compilation check could happen here if we wanted to enforce fail-fast nature of original code.
+        # But we delegate actual compilation to evaluate() or explicit lambdify.
+        # To strictly better separate concerns, validation is done in Graph (security), logic in Engine.
 
-            for sym_name in valid_symbols:
-                allowed_locals[sym_name] = sympy.Symbol(sym_name)
+    def add_check(self, expr: str, desc: str, name: str = "Check", fmt: str = None):
+        """
+        Adds a validation step.
+        """
+        self.graph.add_check(expr, desc, name, fmt)
 
-            # Parsing sécurisé
-            sym_expr = sympy.sympify(expr_processed, locals=allowed_locals)
+    def evaluate(self):
+        """
+        Executes all registered calculations sequentially.
+        """
+        self.engine.evaluate(self.graph)
 
-            # Validation stricte : vérifier que tous les symboles libres sont connus
-            # RELAXED: On autorise les symboles inconnus pour permettre lambdify (inputs externes)
-            # for sym in sym_expr.free_symbols:
-            #    s_name = str(sym)
-            #    if s_name not in allowed_locals:
-            #         raise ValueError(f"Unknown symbol '{sym}' in expression '{expr}'.")
+    def lambdify_equation(self, name: str) -> Any:
+        """
+        Creates a function from the specified equation compatible with pandas.DataFrame.assign.
+        """
+        return self.engine.lambdify_equation(self.graph, name)
 
-            # Compilation avec lambdify
-            args_syms = sorted(list(sym_expr.free_symbols), key=lambda s: str(s))
-            args_names = [str(s) for s in args_syms]
+    def __getitem__(self, key: str) -> Any:
+        """
+        Allows dictionary-style access to parameters and results.
+        """
+        return self.graph.params[key]
 
-            compiled_func = sympy.lambdify(args_syms, sym_expr, modules=["numpy", "math"])
-            return compiled_func, args_names
-
-        except Exception as e:
-            raise ValueError(f"Invalid or unsafe expression '{expr}' for '{name}': {e}")
+    def report(self, row_templates: Optional[Dict[str, str]] = None, environment: str = "align*") -> str:
+        """
+        Generates the LaTeX report.
+        """
+        return self.formatter.report(self.graph, row_templates, environment)
