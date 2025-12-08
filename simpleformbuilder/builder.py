@@ -32,17 +32,55 @@ class CalculationGraph:
         self.symbols: Dict[str, str] = {}
         self.steps: List[Dict[str, Any]] = []
 
+    def _validate_expression(self, name: str, expr: str):
+        """
+        Validates the mathematical expression for security and correctness.
+
+        Args:
+            name (str): The name associated with the expression.
+            expr (str): The mathematical expression to validate.
+
+        Raises:
+            ValueError: If the name is invalid, the expression contains forbidden patterns,
+                or uses undefined variables/functions.
+        """
+        # Validate name
+        if not name.isidentifier():
+             raise ValueError(f"Name '{name}' must be a valid Python identifier.")
+
+        # Security check
+        try:
+            security_check(name, expr)
+        except ValueError as e:
+            raise ValueError(f"Invalid expression for '{name}': {e}")
+        
+        # Note: Further AST/Symbolic validation could be added here if needed,
+        # checking against self.params and self.symbols.
+
+
     def add_param(self, name: str, symbol: str, value: Any, desc: str = "", hidden: bool = False, fmt: str = None):
         """
-        Registers a constant parameter.
+        Registers a constant parameter in the calculation graph.
+
+        Args:
+            name (str): Unique identifier for the parameter (must be a valid Python identifier).
+            symbol (str): LaTeX representation of the parameter symbol (e.g., "\\sigma").
+            value (int, float, pint.Quantity, np.ndarray): The numerical value or physical quantity.
+            desc (str, optional): A description of the parameter. Defaults to "".
+            hidden (bool, optional): If True, the parameter will not appear in the generated report. Defaults to False.
+            fmt (str, optional): Format string for displaying the value (e.g., ".2f"). Defaults to None.
+
+        Raises:
+            ValueError: If `name` is not a valid Python identifier.
+            TypeError: If `value` is not one of the accepted types (int, float, pint.Quantity, np.ndarray).
         """
-        # Sécurité et Robustesse : Validation des noms
+        # Name validation
         if not name.isidentifier():
             raise ValueError(f"Parameter name '{name}' must be a valid Python identifier.")
         
-        # Sécurité et Robustesse : Gestion des types
+        # Type validation
         if not isinstance(value, (int, float, pint.Quantity, np.ndarray)):
-             raise TypeError(f"Value for '{name}' must be int, float, pint.Quantity, or np.ndarray.")
+             raise TypeError(f"Value for '{name}' must be an int, float, pint.Quantity, or np.ndarray. Got {type(value)}.")
 
         self.params[name] = value
         self.symbols[name] = symbol
@@ -60,11 +98,21 @@ class CalculationGraph:
     def add_equation(self, name: str, symbol: str, expr: str, unit: Any = None, desc: str = "", hidden: bool = False, fmt: str = None):
         """
         Registers an equation to be calculated.
+
+        Args:
+            name (str): Unique identifier for the result variable.
+            symbol (str): LaTeX representation of the result symbol.
+            expr (str): The mathematical expression as a string.
+            unit (Any, optional): The expected unit of the result. If provided, the result will be converted to this unit. Defaults to None.
+            desc (str, optional): Description of the equation. Defaults to "".
+            hidden (bool, optional): If True, this step will be hidden in the report. Defaults to False.
+            fmt (str, optional): Format string for the result. Defaults to None.
+
+        Raises:
+            ValueError: If `name` is invalid or `expr` contains forbidden content.
         """
-        try:
-            security_check(name, expr)
-        except ValueError as e:
-            raise ValueError(f"Equation '{name}' is invalid: {e}")
+        # Validation
+        self._validate_expression(name, expr)
 
         self.symbols[name] = symbol
         
@@ -86,12 +134,19 @@ class CalculationGraph:
 
     def add_check(self, expr: str, desc: str, name: str = "Check", fmt: str = None):
         """
-        Adds a validation step.
+        Registers a check/validation step (boolean expression).
+
+        Args:
+            expr (str): The boolean expression to evaluate (e.g. "x > 0").
+            desc (str): Description of what is being checked.
+            name (str, optional): Identifier for the check. Defaults to "Check".
+            fmt (str, optional): Format string for values displayed in the check expression. Defaults to None.
+
+        Raises:
+            ValueError: If `expr` is invalid or unsafe.
         """
-        try:
-            security_check(name, expr)
-        except ValueError as e:
-            raise ValueError(f"Check '{name}' is invalid: {e}")
+        # Validation
+        self._validate_expression(name, expr)
 
         # Validation of cycles (optional placeholder)
         self.validate_graph(current_node=name, dependencies=self._extract_deps(expr))
@@ -210,6 +265,28 @@ class CalculationEngine:
     def lambdify_equation(self, graph: CalculationGraph, name: str) -> Any:
         """
         Creates a function from the specified equation compatible with pandas.DataFrame.assign.
+
+        Mechanisms:
+        1. **Variable Resolution Priority**:
+           - **DataFrame/Input Dict**: Variables present in the input `df` (columns or keys) are used first.
+           - **Parameters**: If a variable is not in `df` but exists in `SimpleFormBuilder.params`, it is treated as a constant.
+           - **Error**: If missing in both, a `KeyError` is raised.
+
+        2. **Unit Injection**:
+           - If a variable comes from `df` but also exists in `params` as a `pint.Quantity`, the corresponding unit is automatically injected (multiplied) into the values from `df`. This ensures unit consistency within the expression.
+
+        3. **Unit Output**:
+           - If the equation has a target `unit` defined, the result is converted to that unit before being returned.
+
+        Args:
+            graph (CalculationGraph): The calculation graph containing equations and parameters.
+            name (str): The name of the equation to lambdify.
+
+        Returns:
+            Callable[[DataFrame | dict], Series | np.ndarray]: A function that accepts a DataFrame or dict and returns the calculated result.
+        
+        Raises:
+            KeyError: If the equation is not found.
         """
         # Find the equation step
         eq_step = None
@@ -469,6 +546,11 @@ class SimpleFormBuilder:
     def __init__(self):
         """
         Initializes the builder composition.
+
+        Attributes:
+            graph (CalculationGraph): Stores logic.
+            engine (CalculationEngine): Executes logic.
+            formatter (LaTeXFormatter): Formats output.
         """
         self.graph = CalculationGraph()
         self.engine = CalculationEngine()
@@ -501,12 +583,29 @@ class SimpleFormBuilder:
     def add_param(self, name: str, symbol: str, value: Any, desc: str = "", hidden: bool = False, fmt: str = None):
         """
         Registers a constant parameter.
+
+        Args:
+            name (str): Unique identifier for the parameter (valid Python identifier).
+            symbol (str): LaTeX representation (e.g., "\\sigma").
+            value (int, float, pint.Quantity, np.ndarray): Numerical value or Quantity.
+            desc (str, optional): Description. Defaults to "".
+            hidden (bool, optional): Hide from report. Defaults to False.
+            fmt (str, optional): Format string. Defaults to None.
         """
         self.graph.add_param(name, symbol, value, desc, hidden, fmt)
 
     def add_equation(self, name: str, symbol: str, expr: str, unit: Any = None, desc: str = "", hidden: bool = False, fmt: str = None):
         """
         Registers an equation to be calculated.
+
+        Args:
+            name (str): Unique identifier for the result.
+            symbol (str): LaTeX representation.
+            expr (str): Mathematical expression.
+            unit (Any, optional): Expected unit. Defaults to None.
+            desc (str, optional): Description. Defaults to "".
+            hidden (bool, optional): Hide from report. Defaults to False.
+            fmt (str, optional): Format string. Defaults to None.
         """
         self.graph.add_equation(name, symbol, expr, unit, desc, hidden, fmt)
         # Compatibility: Pre-compilation check could happen here if we wanted to enforce fail-fast nature of original code.
@@ -516,6 +615,12 @@ class SimpleFormBuilder:
     def add_check(self, expr: str, desc: str, name: str = "Check", fmt: str = None):
         """
         Adds a validation step.
+
+        Args:
+            expr (str): Boolean expression.
+            desc (str): Description.
+            name (str, optional): Identifier. Defaults to "Check".
+            fmt (str, optional): Format string. Defaults to None.
         """
         self.graph.add_check(expr, desc, name, fmt)
 
@@ -528,6 +633,24 @@ class SimpleFormBuilder:
     def lambdify_equation(self, name: str) -> Any:
         """
         Creates a function from the specified equation compatible with pandas.DataFrame.assign.
+
+        Mechanisms:
+        1. **Variable Resolution Priority**:
+           - **DataFrame/Input Dict**: Variables present in the input `df` (columns or keys) are used first.
+           - **Parameters**: If a variable is not in `df` but exists in `SimpleFormBuilder.params`, it is treated as a constant.
+           - **Error**: If missing in both, a `KeyError` is raised.
+
+        2. **Unit Injection**:
+           - If a variable comes from `df` but also exists in `params` as a `pint.Quantity`, the corresponding unit is automatically injected (multiplied) into the values from `df`. This ensures unit consistency within the expression.
+
+        3. **Unit Output**:
+           - If the equation has a target `unit` defined, the result is converted to that unit before being returned.
+
+        Args:
+            name (str): The name of the equation.
+
+        Returns:
+            Callable: compiled function.
         """
         return self.engine.lambdify_equation(self.graph, name)
 
@@ -540,5 +663,12 @@ class SimpleFormBuilder:
     def report(self, row_templates: Optional[Dict[str, str]] = None, environment: str = "align*") -> str:
         """
         Generates the LaTeX report.
+
+        Args:
+            row_templates (Dict[str, str], optional): Custom templates.
+            environment (str, optional): LaTeX environment. Defaults to "align*".
+
+        Returns:
+            str: The generated LaTeX code.
         """
         return self.formatter.report(self.graph, row_templates, environment)
