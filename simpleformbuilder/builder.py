@@ -1,10 +1,8 @@
-# Reference: e:\10_PYTHON\DEV\pysimpleform\specifications.md
-# This implementation strictly follows the specifications defined in the file above.
-
 import pint
 import sympy
 import numpy as np
 import re
+import math
 from typing import Any, Optional, List, Dict
 from .utils import security_check
 
@@ -117,7 +115,8 @@ class CalculationGraph:
         self.symbols[name] = symbol
         
         # Validation of cycles could be done here (optional placeholder)
-        self.validate_graph(current_node=name, dependencies=self._extract_deps(expr))
+        # Note: cycles are not checked for now assumed to be handled by the user
+        # self.validate_graph(current_node=name, dependencies=self._extract_deps(expr))
 
         self.steps.append({
             "type": "eq",
@@ -149,7 +148,7 @@ class CalculationGraph:
         self._validate_expression(name, expr)
 
         # Validation of cycles (optional placeholder)
-        self.validate_graph(current_node=name, dependencies=self._extract_deps(expr))
+        # self.validate_graph(current_node=name, dependencies=self._extract_deps(expr))
 
         self.steps.append({
             "type": "check",
@@ -161,18 +160,18 @@ class CalculationGraph:
             "args_names": []
         })
 
-    def validate_graph(self, current_node: str, dependencies: List[str]):
-        """
-        Validates the absence of cycles in the calculation graph.
-        Currently a placeholder.
-        """
-        # TODO: Implement cycle detection logic
-        pass
+    # def validate_graph(self, current_node: str, dependencies: List[str]):
+    #     """
+    #     Validates the absence of cycles in the calculation graph.
+    #     Currently a placeholder.
+    #     """
+    #     # TODO: Implement cycle detection logic
+    #     pass
 
-    def _extract_deps(self, expr: str) -> List[str]:
-         # Rough extraction for placeholder validation
-         # This is not perfect but serves the placeholder purpose
-         return re.findall(r'\b[a-zA-Z_]\w*\b', expr)
+    # def _extract_deps(self, expr: str) -> List[str]:
+    #      # Rough extraction for placeholder validation
+    #      # This is not perfect but serves the placeholder purpose
+    #      return re.findall(r'\b[a-zA-Z_]\w*\b', expr)
 
 
 class CalculationEngine:
@@ -182,13 +181,27 @@ class CalculationEngine:
     def __init__(self, ureg: Optional[pint.UnitRegistry] = None):
         self.ureg = ureg if ureg else pint.UnitRegistry()
 
+    def _evaluate_raw_expression(self, step: Dict[str, Any], graph: CalculationGraph, get_arg_value) -> Any:
+        """
+        Helper to compile (if needed) and evaluate a step's expression.
+        """
+        if step["compiled_func"] is None:
+                compiled_func, args_names = self._compile_equation(step["name"], step["expr"], graph)
+                step["compiled_func"] = compiled_func
+                step["args_names"] = args_names
+
+        compiled_func = step["compiled_func"]
+        args_names = step["args_names"]
+        
+        args = [get_arg_value(arg) for arg in args_names]
+        
+        return compiled_func(*args)
+
     def evaluate(self, graph: CalculationGraph):
         """
         Executes all registered calculations sequentially.
         """
-        # 3.2.4 evaluate - Contexte d'évaluation
-        import math
-        
+
         # Helper to resolve arguments
         def get_arg_value(arg_name):
             if arg_name.startswith("UNIT_"):
@@ -208,27 +221,17 @@ class CalculationEngine:
         for step in graph.steps:
             if step["type"] == "eq":
                 try:
-                    if step["compiled_func"] is None:
-                         compiled_func, args_names = self._compile_equation(step["name"], step["expr"], graph)
-                         step["compiled_func"] = compiled_func
-                         step["args_names"] = args_names
-
-                    compiled_func = step["compiled_func"]
-                    args_names = step["args_names"]
+                    # evaluation
+                    result = self._evaluate_raw_expression(step, graph, get_arg_value)
                     
-                    args = [get_arg_value(arg) for arg in args_names]
-                    
-                    # 3.2.4 evaluate - 2. Evaluer
-                    result = compiled_func(*args)
-                    
-                    # 3.2.4 evaluate - 4. Conversion d'unité
+                    # conversion d'unité
                     if step["unit"]:
                         if isinstance(result, pint.Quantity):
                             result = result.to(step["unit"])
                         else:
                              result = self.ureg.Quantity(result, step["unit"])
 
-                    # 3.2.4 evaluate - 5. Stocker le résultat
+                    # stockage
                     graph.params[step["name"]] = result
                     step["result"] = result
                     
@@ -241,18 +244,8 @@ class CalculationEngine:
 
             elif step["type"] == "check":
                 try:
-                    if step["compiled_func"] is None:
-                         compiled_func, args_names = self._compile_equation(step["name"], step["expr"], graph)
-                         step["compiled_func"] = compiled_func
-                         step["args_names"] = args_names
-
-                    compiled_func = step["compiled_func"]
-                    args_names = step["args_names"]
-                    
-                    args = [get_arg_value(arg) for arg in args_names]
-                    
-                    # 3.2.4 evaluate - 2. Evaluer expr (booléen)
-                    result = compiled_func(*args)
+                    # evaluation (booléen)
+                    result = self._evaluate_raw_expression(step, graph, get_arg_value)
                     
                     # Handle numpy array results
                     if isinstance(result, np.ndarray):
@@ -261,6 +254,7 @@ class CalculationEngine:
                         step["result"] = bool(result)
                 except Exception as e:
                      raise RuntimeError(f"Error evaluating check '{step['desc']}': {e}")
+                     
 
     def lambdify_equation(self, graph: CalculationGraph, name: str) -> Any:
         """
@@ -298,37 +292,30 @@ class CalculationEngine:
         if not eq_step:
             raise KeyError(f"Equation '{name}' not found.")
         
-        # Build a map of all equation expressions (for recursive substitution if needed, mainly for context)
-        # eq_map = {s["name"]: s["expr"] for s in graph.steps if s["type"] == "eq"}
-        
-        import sympy
-        # Use simple symbol extraction first
-        local_dict = {k: sympy.Symbol(k) for k in graph.params.keys()}
-        
-        def parse_expr(e_str):
-            try:
-                return sympy.sympify(e_str, locals=local_dict)
-            except:
-                return sympy.sympify(e_str)
-
-        sym_expr = parse_expr(eq_step["expr"])
-        
-        # free_symbols
-        free_symbols = list(sym_expr.free_symbols)
-        free_symbol_names = [str(s) for s in free_symbols]
-        
-        # Create lambdified function
-        f = sympy.lambdify(free_symbols, sym_expr, modules=["numpy", "math"])
+        # Reuse internal compilation logic to ensure consistency (handles u.unit, security, allowed locals)
+        compiled_func, args_names = self._compile_equation(name, eq_step["expr"], graph)
         
         target_unit = eq_step.get("unit")
 
         def wrapper(df):
             # df can be DataFrame or dict-like
             args = []
-            for name in free_symbol_names:
-                if name in df:
-                    # Input from DataFrame/Dict
-                    val = df[name]
+            for arg_name in args_names:
+                # 1. Handle unit constants injected by _compile_equation (e.g. UNIT_meter)
+                if arg_name.startswith("UNIT_"):
+                    unit_name = arg_name[5:]
+                    if hasattr(self.ureg, unit_name):
+                        val = getattr(self.ureg, unit_name)
+                    elif unit_name in self.ureg:
+                         val = self.ureg[unit_name]
+                    else:
+                         raise ValueError(f"Unknown unit '{unit_name}' in equation.")
+                    args.append(val)
+                    continue
+
+                # 2. Handle DataFrame/Dict input
+                if arg_name in df:
+                    val = df[arg_name]
                     
                     # Convert to numpy/values if possible
                     if hasattr(val, "values"):
@@ -336,27 +323,31 @@ class CalculationEngine:
                     elif isinstance(val, (list, tuple)):
                         val = np.array(val)
                     
-                    # 2. Inject Units if applicable
-                    if name in graph.params:
-                        default_val = graph.params[name]
+                    # 3. Inject Units from params if applicable
+                    # If the variable exists in params with a unit, we multiply the raw dataframe values by that unit.
+                    if arg_name in graph.params:
+                        default_val = graph.params[arg_name]
                         if isinstance(default_val, pint.Quantity):
-                            # Multiply by units. 
                             val = val * default_val.units
                             
                     args.append(val)
-                elif name in graph.params:
-                    # Constant from params
-                    args.append(graph.params[name])
+                
+                # 4. Handle constant from params
+                elif arg_name in graph.params:
+                    args.append(graph.params[arg_name])
+                
                 else:
-                    raise KeyError(f"Variable '{name}' required for equation '{name}' (resolved) not found in DataFrame or Builder parameters.")
+                    raise KeyError(f"Variable '{arg_name}' required for equation '{name}' not found in DataFrame or Builder parameters.")
             
             # Calculate
-            res = f(*args)
+            res = compiled_func(*args)
             
-            # 3. Convert to target unit
+            # 5. Convert to target unit
             if target_unit:
                 if isinstance(res, pint.Quantity):
                     res = res.to(target_unit)
+                # Note: if res is not a Quantity (concerns about unit validation failure?), we might skip.
+                # But typically it should be if inputs had units.
                 
             return res
         
