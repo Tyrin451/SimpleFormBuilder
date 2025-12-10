@@ -143,9 +143,10 @@ Ajoute une étape de validation.
 #### `evaluate()`
 Exécute tous les calculs et vérifications dans l'ordre où ils ont été ajoutés.
 
-#### `report(row_templates=None)`
+#### `report(row_templates=None, environment=None)`
 Génère le code LaTeX du rapport.
 - `row_templates` : Dictionnaire optionnel pour personnaliser le formatage des lignes (`param`, `eq`, `check`).
+- `environment` : Environnement LaTeX optionnel (ex: `"align*"`, `"itemize"`). Si spécifié, l'environnement choisi est forcé pour *toutes* les sections du rapport, surchargeant la configuration du template choisi. Par défaut (`None`), le rapport utilise les environnements définis par le template actif.
 
 #### `lambdify_equation(name)`
 Génère une fonction Python exécutable à partir d'une équation enregistrée, optimisée pour `pandas`.

@@ -462,87 +462,76 @@ class LaTeXFormatter:
         self.precision = precision
         self.template = LaTeXTemplateLibrary.get_template(template)
 
-    def report(self, graph: CalculationGraph, row_templates: Optional[Dict[str, str]] = None, environment: str = "align*") -> str:
+    def _format_value(self, val: Any, fmt_spec: Optional[str] = None) -> str:
+        """Helper to format a value using the specified precision/format."""
+        if fmt_spec:
+            f_str = f"{{:{fmt_spec}}}"
+        else:
+            f_str = f"{{:.{self.precision}f}}"
+
+        if isinstance(val, pint.Quantity):
+            mag = val.magnitude
+            if isinstance(mag, np.ndarray):
+                # Array formatting
+                mag_str = r'\begin{bmatrix}' + np.array2string(
+                    mag, 
+                    precision=self.precision, 
+                    separator=r'\\', 
+                    formatter={'float_kind' : lambda x : f_str.format(x)}
+                ).strip("[]") + r'\end{bmatrix}'
+            else:
+                # Scalar formatting
+                mag_str = f_str.format(mag)
+            
+            unit_str = rf"\ {val.units:~L}"
+            return f"{mag_str}{unit_str}".replace("%", r"\%")
+            
+        elif isinstance(val, (int, float)):
+            return f_str.format(val).replace("%", r"\%")
+            
+        elif isinstance(val, np.ndarray):
+            return np.array2string(
+                val, 
+                precision=self.precision, 
+                separator=', ', 
+                formatter={'float_kind' : lambda x : f_str.format(x)}
+            )
+        else:
+            return str(val)
+
+    def _format_expr(self, expr_str: str, graph: CalculationGraph) -> str:
+        """Helper to format an expression string to LaTeX."""
+        try:
+            local_dict = {name: sympy.Symbol(name) for name in graph.params.keys()}
+            sym_expr = sympy.sympify(expr_str, locals=local_dict, evaluate=False)
+            symbol_names = {sympy.Symbol(name): sym for name, sym in graph.symbols.items()}
+            return sympy.latex(sym_expr, symbol_names=symbol_names)
+        except Exception:
+            return expr_str.replace("**", "^").replace("*", r"\cdot ")
+
+    def report(self, graph: CalculationGraph, row_templates: Optional[Dict[str, str]] = None, environment: Optional[str] = None) -> str:
         """
         Generates the LaTeX report.
         
         Args:
             graph: The calculation graph.
-            row_templates: Optional overrides for specific row types (backward compatibility/customization).
-            environment: Optional override for the environment. If provided, it overrides the template's environment settings for ALL steps (backward compatibility).
+            row_templates: Optional overrides for specific row types.
+            environment: Optional override for the environment. If provided (not None), it overrides the template's environment settings for ALL steps.
         """
         # 1. Resolve effective template configuration
         current_template = self.template.copy()
         
         # Merge row_templates if provided
         if row_templates:
-            # We copy to avoid mutating the class default if it was a direct ref
             current_template["rows"] = current_template.get("rows", {}).copy()
             current_template["rows"].update(row_templates)
             
         rows_config = current_template.get("rows", {})
         envs_config = current_template.get("environments", {})
 
-        # Backward compatibility: if 'environment' arg is explicitly passed and not None (default in sig might vary, here default is "align*")
-        # In original code, default was "align*".
-        # We need to distinguish if user provided it or if it's just default.
-        # But looking at old sig: def report(..., environment="align*")
-        # If we want to use template defaults, we should probably change default to None, 
-        # or assume "align*" is the default override.
-        # Decision: To strictly follow "if environment is passed", we treat it as override.
-        # However, since default is "align*", it will ALWAYS be passed.
-        # So we should probably check if the template has specific envs.
-        # Logic: Use environment arg as the "global default" fallback, but template can specify per-type.
-        # Wait, user requirement was: "Backward compatibility: report(environment=...) argument... will act as a default override".
-        # If I change default to None in signatures, I break code that relies on default="align*"? No.
-        # Let's interpret: If the user calls report(environment="equation"), they want "equation".
-        # If they call report(), they get default "align*".
-        # But if they use a template like "detailed" which wants "itemize", report() (default align*) would break it if I force align*.
-        # So: I will ignore the `environment` argument IF it matches the default "align*" AND the template specifies something else.
-        # Better: I will let the template drive. The `environment` argument essentially overrides `envs_config` values if it's meant to be a global override.
-        # BUT, `simpleformbuilder` users might just call `builder.report()`.
-        # If I change the `builder.report` default to None, then I can know.
-        
-        # I'll rely on the caller to handle this. I will assume if this method receives `environment`, it is the intended environment.
-        # But wait, I'm refactoring `report` inside `LaTeXFormatter`. 
-        # I'll change the default to None here to detect usage.
-        
-        # NOTE: Changing signature default value from "align*" to None.
-    
         lines = []
         current_env = None
 
-        # Helper to format value (Kept from original)
-        def format_value(val, fmt_spec):
-            if fmt_spec:
-                f_str = f"{{:{fmt_spec}}}"
-            else:
-                f_str = f"{{:.{self.precision}f}}"
-            if isinstance(val, pint.Quantity):
-                mag = val.magnitude
-                if isinstance(mag, np.ndarray):
-                    mag_str = r'\begin{bmatrix}' + np.array2string(mag, precision=self.precision, separator=r'\\', formatter={'float_kind' : lambda x : f_str.format(x)}).strip("[]") + r'\end{bmatrix}'
-                else:
-                    mag_str = f_str.format(mag)
-                unit_str = rf"\ {val.units:~L}"
-                return f"{mag_str}{unit_str}".replace("%", r"\%")
-            elif isinstance(val, (int, float)):
-                return f_str.format(val).replace("%", r"\%")
-            elif isinstance(val, np.ndarray):
-                return np.array2string(val, precision=self.precision, separator=', ', formatter={'float_kind' : lambda x : f_str.format(x)})
-            else:
-                return str(val)
-
-        # Helper to format expression (Kept from original)
-        def format_expr(expr_str):
-            try:
-                local_dict = {name: sympy.Symbol(name) for name in graph.params.keys()}
-                sym_expr = sympy.sympify(expr_str, locals=local_dict, evaluate=False)
-                symbol_names = {sympy.Symbol(name): sym for name, sym in graph.symbols.items()}
-                return sympy.latex(sym_expr, symbol_names=symbol_names)
-            except Exception:
-                return expr_str.replace("**", "^").replace("*", r"\cdot ")
-        
         for step in graph.steps:
             if step.get("hidden", False):
                 continue
@@ -551,15 +540,14 @@ class LaTeXFormatter:
             
             # Determine required environment
             # Priority: 
-            # 1. `environment` argument (if not None)
+            # 1. `environment` argument (if explicit override provided)
             # 2. Template `environments` config for this type
             # 3. Default "align*"
             
-            req_env = "align*" # Ultimate fallback
             if environment is not None:
                 req_env = environment
-            elif step_type in envs_config:
-                req_env = envs_config[step_type]
+            else:
+                req_env = envs_config.get(step_type, "align*")
             
             # Environment switching
             if current_env != req_env:
@@ -582,11 +570,11 @@ class LaTeXFormatter:
             }
 
             if step_type == "param":
-                data["value"] = format_value(step["value"], step.get("fmt"))
+                data["value"] = self._format_value(step["value"], step.get("fmt"))
                 
             elif step_type == "eq":
-                data["value"] = format_value(step.get("result"), step.get("fmt"))
-                data["expr"] = format_expr(step["expr"])
+                data["value"] = self._format_value(step.get("result"), step.get("fmt"))
+                data["expr"] = self._format_expr(step["expr"], graph)
                 
             elif step_type == "check":
                 data["status"] = r"\textbf{\textcolor{green}{OK}}" if step.get("result") else r"\textbf{\textcolor{red}{NOK}}"
@@ -607,17 +595,16 @@ class LaTeXFormatter:
                                     if s.get("name") == sym_name:
                                         fmt = s.get("fmt")
                                         break
-                            val_str = format_value(val, fmt)
-                            # Escape special chars in latex logic if needed, but simple subst here
+                            val_str = self._format_value(val, fmt)
+                            # Simple substitution for logic display
                             new_sym_latex = rf"{{{latex_sym}}} = {val_str}"
                             subs[sym] = sympy.Symbol(new_sym_latex)
                     data["expr"] = sympy.latex(sym_expr.subs(subs))
                 except Exception:
-                    data["expr"] = format_expr(step["expr"])
+                    data["expr"] = self._format_expr(step["expr"], graph)
 
             # Render row
             try:
-                # Use specific row template or fallback to empty/comment
                 row_tpl = rows_config.get(step_type, "")
                 line = row_tpl.format(**data)
                 lines.append(line)
