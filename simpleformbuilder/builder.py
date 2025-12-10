@@ -272,6 +272,10 @@ class CalculationEngine:
 
         3. **Unit Output**:
            - If the equation has a target `unit` defined, the result is converted to that unit before being returned.
+        
+        4. **Chained Evaluation**:
+           - Dependencies that are also equations in the graph are recursively expanded.
+           - This ensures the generated function depends only on base parameters/inputs, not intermediate calculation results from the builder's state.
 
         Args:
             graph (CalculationGraph): The calculation graph containing equations and parameters.
@@ -293,8 +297,8 @@ class CalculationEngine:
         if not eq_step:
             raise KeyError(f"Equation '{name}' not found.")
         
-        # Reuse internal compilation logic to ensure consistency (handles u.unit, security, allowed locals)
-        compiled_func, args_names = self._compile_equation(name, eq_step["expr"], graph)
+        # Reuse internal compilation logic with expansion for chained eval
+        compiled_func, args_names = self._compile_equation(name, eq_step["expr"], graph, expand=True)
         
         target_unit = eq_step.get("unit")
 
@@ -329,7 +333,9 @@ class CalculationEngine:
                     if arg_name in graph.params:
                         default_val = graph.params[arg_name]
                         if isinstance(default_val, pint.Quantity):
-                            val = val * default_val.units
+                             # Only apply unit if val is NOT already a Quantity
+                             if not isinstance(val, pint.Quantity):
+                                val = val * default_val.units
                             
                     args.append(val)
                 
@@ -354,9 +360,15 @@ class CalculationEngine:
         
         return wrapper
 
-    def _compile_equation(self, name: str, expr: str, graph: CalculationGraph):
+    def _compile_equation(self, name: str, expr: str, graph: CalculationGraph, expand: bool = False):
         """
         Compiles an equation expression using SymPy and lambdify.
+        
+        Args:
+            name: Equation name.
+            expr: Mathematical expression string.
+            graph: CalculationGraph instance.
+            expand: If True, recursively substitutes dependencies that are other equations.
         """
         try:
             # Définir le contexte autorisé pour le parsing
@@ -367,25 +379,69 @@ class CalculationEngine:
                 if step_item.get("name"):
                     valid_symbols.add(step_item["name"])
 
-            # Gestion des unités (u.meter -> UNIT_meter)
-            def unit_replacer(match):
-                unit_name = match.group(1)
-                if not hasattr(self.ureg, unit_name):
-                    pass
-                return f"UNIT_{unit_name}"
+            # Helper for unit replacement (u.meter -> UNIT_meter)
+            def process_expression_string(raw_expr):
+                def unit_replacer(match):
+                    unit_name = match.group(1)
+                    # We could check existence, but simpler to just map
+                    return f"UNIT_{unit_name}"
+                
+                proc_expr = re.sub(r"\bu\.([a-zA-Z_]\w*)", unit_replacer, raw_expr)
+                
+                # Update allowed_locals with found units
+                used_units = re.findall(r"UNIT_([a-zA-Z_]\w*)", proc_expr)
+                for u_name in used_units:
+                    sym_name = f"UNIT_{u_name}"
+                    if sym_name not in allowed_locals:
+                        allowed_locals[sym_name] = sympy.Symbol(sym_name)
+                
+                return proc_expr
 
-            expr_processed = re.sub(r"\bu\.([a-zA-Z_]\w*)", unit_replacer, expr)
-
-            used_units = re.findall(r"UNIT_([a-zA-Z_]\w*)", expr_processed)
-            for u_name in used_units:
-                sym_name = f"UNIT_{u_name}"
-                allowed_locals[sym_name] = sympy.Symbol(sym_name)
+            expr_processed = process_expression_string(expr)
 
             for sym_name in valid_symbols:
                 allowed_locals[sym_name] = sympy.Symbol(sym_name)
 
-            # Parsing sécurisé
+            # Parsing sécurisé de l'expression initiale
             sym_expr = sympy.sympify(expr_processed, locals=allowed_locals)
+            
+            if expand:
+                # Recursive substitution of intermediate equations
+                max_depth = 20
+                current_depth = 0
+                
+                while current_depth < max_depth:
+                    free_syms = sym_expr.free_symbols
+                    subs_dict = {}
+                    performed_sub = False
+                    
+                    for sym in free_syms:
+                        sym_str = str(sym)
+                        # Check if this symbol matches an existing Equation in the graph
+                        # We should skip if it's a Parameter (leaf)
+                        step = next((s for s in graph.steps if s.get("name") == sym_str), None)
+                        
+                        if step and step["type"] == "eq":
+                            # Found an intermediate equation defined in the graph
+                            sub_expr_str = step["expr"]
+                            
+                            # Process units in the sub-expression
+                            sub_expr_processed = process_expression_string(sub_expr_str)
+                            
+                            # Sympify
+                            sub_sym_expr = sympy.sympify(sub_expr_processed, locals=allowed_locals)
+                            
+                            subs_dict[sym] = sub_sym_expr
+                            performed_sub = True
+                    
+                    if not performed_sub:
+                        break
+                        
+                    sym_expr = sym_expr.subs(subs_dict)
+                    current_depth += 1
+                
+                if current_depth == max_depth:
+                     raise RecursionError(f"Max recursion depth reached while expanding equation '{name}'. Possible cycle.")
 
             # Compilation avec lambdify
             args_syms = sorted(list(sym_expr.free_symbols), key=lambda s: str(s))
