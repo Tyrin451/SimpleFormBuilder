@@ -89,6 +89,33 @@ A &= 50.00\ \mathrm{cm}^2 && \text{Section transversale} \\
 \end{align*}
 $$
 
+## Utilisation des Templates
+
+`SimpleFormBuilder` supporte plusieurs styles de présentation via le système de templates.
+
+### Templates disponibles
+
+- **`"standard"`** (Défaut) : Présentation tabulaire classique (`align*`).
+- **`"compact"`** : Présentation simplifiée sans descriptions textuelles (`align*`).
+- **`"detailed"`** : Présentation sous forme de liste avec descriptions en gras (`itemize`).
+
+### Exemple
+
+```python
+# Initialisation avec un template
+builder = SimpleFormBuilder(template="detailed")
+# ... ajout des paramètres et équations ...
+print(builder.report())
+```
+
+### Personnalisation de l'environnement
+
+Vous pouvez forcer un environnement LaTeX spécifique (ex: `gather`, `equation`) lors de la génération, ce qui surcharge la configuration du template :
+
+```python
+builder.report(environment="gather")
+```
+
 ## Documentation de l'API
 
 ### Classe `SimpleFormBuilder`
