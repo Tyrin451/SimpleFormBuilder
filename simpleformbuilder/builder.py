@@ -356,7 +356,9 @@ class CalculationEngine:
                 # Note: if res is not a Quantity (concerns about unit validation failure?), we might skip.
                 # But typically it should be if inputs had units.
             else:
-                if res.dimensionless:
+                if hasattr(res, "dimensionless") and res.dimensionless:
+                    if isinstance(res, pint.Quantity):
+                        res = res.to("dimensionless")
                     res = res.magnitude
                 
             return res
