@@ -264,18 +264,15 @@ class CalculationEngine:
         Mechanisms:
         1. **Variable Resolution Priority**:
            - **DataFrame/Input Dict**: Variables present in the input `df` (columns or keys) are used first.
-           - **Parameters**: If a variable is not in `df` but exists in `SimpleFormBuilder.params`, it is treated as a constant.
-           - **Error**: If missing in both, a `KeyError` is raised.
+           - **Computed Dependencies**: If a variable is an equation in the graph, it is recursively calculated (unless overridden by `df`).
+           - **Parameters**: If a variable is a constant parameter (root input), it is taken from `SimpleFormBuilder.params`.
+           - **Error**: If missing in all sources, a `KeyError` is raised.
 
         2. **Unit Injection**:
            - If a variable comes from `df` but also exists in `params` as a `pint.Quantity`, the corresponding unit is automatically injected (multiplied) into the values from `df`. This ensures unit consistency within the expression.
 
         3. **Unit Output**:
            - If the equation has a target `unit` defined, the result is converted to that unit before being returned.
-        
-        4. **Chained Evaluation**:
-           - Dependencies that are also equations in the graph are recursively expanded.
-           - This ensures the generated function depends only on base parameters/inputs, not intermediate calculation results from the builder's state.
 
         Args:
             graph (CalculationGraph): The calculation graph containing equations and parameters.
@@ -297,10 +294,19 @@ class CalculationEngine:
         if not eq_step:
             raise KeyError(f"Equation '{name}' not found.")
         
-        # Reuse internal compilation logic with expansion for chained eval
-        compiled_func, args_names = self._compile_equation(name, eq_step["expr"], graph, expand=True)
+        # Compile WITHOUT expansion to preserve intermediate variables in signature
+        compiled_func, args_names = self._compile_equation(name, eq_step["expr"], graph, expand=False)
         
         target_unit = eq_step.get("unit")
+
+        # Pre-compile dependency functions for any arguments that are themselves equations
+        dep_funcs = {}
+        for arg in args_names:
+            # Check if arg corresponds to an equation step
+            step = next((s for s in graph.steps if s.get("name") == arg), None)
+            if step and step.get("type") == "eq":
+                # Recursively create lambda for the dependency
+                dep_funcs[arg] = self.lambdify_equation(graph, arg)
 
         def wrapper(df):
             # df can be DataFrame or dict-like
@@ -318,7 +324,7 @@ class CalculationEngine:
                     args.append(val)
                     continue
 
-                # 2. Handle DataFrame/Dict input
+                # 2. Handle DataFrame/Dict input (Highest Priority Override)
                 if arg_name in df:
                     val = df[arg_name]
                     
@@ -328,7 +334,7 @@ class CalculationEngine:
                     elif isinstance(val, (list, tuple)):
                         val = np.array(val)
                     
-                    # 3. Inject Units from params if applicable
+                    # Inject Units from params if applicable
                     # If the variable exists in params with a unit, we multiply the raw dataframe values by that unit.
                     if arg_name in graph.params:
                         default_val = graph.params[arg_name]
@@ -339,12 +345,18 @@ class CalculationEngine:
                             
                     args.append(val)
                 
-                # 4. Handle constant from params
+                # 3. Handle Computed Dependencies (Dynamic Calculation)
+                elif arg_name in dep_funcs:
+                    # Recursive call with the same dataframe to compute the missing intermediate
+                    val = dep_funcs[arg_name](df)
+                    args.append(val)
+
+                # 4. Handle constant from params (Fallback)
                 elif arg_name in graph.params:
                     args.append(graph.params[arg_name])
                 
                 else:
-                    raise KeyError(f"Variable '{arg_name}' required for equation '{name}' not found in DataFrame or Builder parameters.")
+                    raise KeyError(f"Variable '{arg_name}' required for equation '{name}' not found in DataFrame, Dependencies, or Builder parameters.")
             
             # Calculate
             res = compiled_func(*args)

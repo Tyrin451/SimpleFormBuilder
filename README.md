@@ -152,8 +152,9 @@ Génère le code LaTeX du rapport.
 Génère une fonction Python exécutable à partir d'une équation enregistrée, optimisée pour `pandas`.
 - `name` : Nom de l'équation à convertir.
 - **Retourne** : Une fonction qui accepte un DataFrame (ou dictionnaire) et retourne le résultat calculé.
-    - Utilise les colonnes du DataFrame si elles correspondent aux variables de l'équation.
-    - Utilise les paramètres du `builder` pour les variables manquantes.
+    - Utilise les colonnes du DataFrame si elles correspondent aux variables de l'équation (**Priorité 1** : Surcharge).
+    - Calcule récursivement les dépendances intermédiaires si elles sont définies par d'autres équations (**Priorité 2** : Calcul en chaîne).
+    - Utilise les paramètres du `builder` pour les variables manquantes (**Priorité 3** : Constantes par défaut).
     - Gère automatiquement les unités `pint` et la vectorisation.
 
 **Exemple d'utilisation avec Pandas :**
