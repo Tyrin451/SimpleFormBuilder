@@ -89,6 +89,33 @@ A &= 50.00\ \mathrm{cm}^2 && \text{Section transversale} \\
 \end{align*}
 $$
 
+## Utilisation des Templates
+
+`SimpleFormBuilder` supporte plusieurs styles de présentation via le système de templates.
+
+### Templates disponibles
+
+- **`"standard"`** (Défaut) : Présentation tabulaire classique (`align*`).
+- **`"compact"`** : Présentation simplifiée sans descriptions textuelles (`align*`).
+- **`"detailed"`** : Présentation sous forme de liste avec descriptions en gras (`itemize`).
+
+### Exemple
+
+```python
+# Initialisation avec un template
+builder = SimpleFormBuilder(template="detailed")
+# ... ajout des paramètres et équations ...
+print(builder.report())
+```
+
+### Personnalisation de l'environnement
+
+Vous pouvez forcer un environnement LaTeX spécifique (ex: `gather`, `equation`) lors de la génération, ce qui surcharge la configuration du template :
+
+```python
+builder.report(environment="gather")
+```
+
 ## Documentation de l'API
 
 ### Classe `SimpleFormBuilder`
@@ -116,16 +143,18 @@ Ajoute une étape de validation.
 #### `evaluate()`
 Exécute tous les calculs et vérifications dans l'ordre où ils ont été ajoutés.
 
-#### `report(row_templates=None)`
+#### `report(row_templates=None, environment=None)`
 Génère le code LaTeX du rapport.
 - `row_templates` : Dictionnaire optionnel pour personnaliser le formatage des lignes (`param`, `eq`, `check`).
+- `environment` : Environnement LaTeX optionnel (ex: `"align*"`, `"itemize"`). Si spécifié, l'environnement choisi est forcé pour *toutes* les sections du rapport, surchargeant la configuration du template choisi. Par défaut (`None`), le rapport utilise les environnements définis par le template actif.
 
 #### `lambdify_equation(name)`
 Génère une fonction Python exécutable à partir d'une équation enregistrée, optimisée pour `pandas`.
 - `name` : Nom de l'équation à convertir.
 - **Retourne** : Une fonction qui accepte un DataFrame (ou dictionnaire) et retourne le résultat calculé.
-    - Utilise les colonnes du DataFrame si elles correspondent aux variables de l'équation.
-    - Utilise les paramètres du `builder` pour les variables manquantes.
+    - Utilise les colonnes du DataFrame si elles correspondent aux variables de l'équation (**Priorité 1** : Surcharge).
+    - Calcule récursivement les dépendances intermédiaires si elles sont définies par d'autres équations (**Priorité 2** : Calcul en chaîne).
+    - Utilise les paramètres du `builder` pour les variables manquantes (**Priorité 3** : Constantes par défaut).
     - Gère automatiquement les unités `pint` et la vectorisation.
 
 **Exemple d'utilisation avec Pandas :**
