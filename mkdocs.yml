@@ -6,12 +6,11 @@ theme:
 
 plugins:
   - search            # Barre de recherche standard
-  - mkdocstrings:     # Le plugin magique pour Python
+  - mkdocstrings:     
       default_handler: python
       handlers:
         python:
-          paths: [simpleformbuilder]  # <--- IMPORTANT : Le dossier où se trouve votre code source.
-                        # Si votre code est à la racine, mettez [.]
+          paths: [simpleformbuilder]
 
 nav:
   - Accueil: index.md
