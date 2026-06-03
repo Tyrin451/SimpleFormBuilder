@@ -4,7 +4,7 @@ import numpy as np
 import re
 import math
 from typing import Any, Optional, List, Dict
-from .utils import security_check
+from .utils import security_check, safe_parse, SecurityError
 from .templates import LaTeXTemplateLibrary
 
 ALLOWED_LOCALS = {
@@ -50,6 +50,8 @@ class CalculationGraph:
         # Security check
         try:
             security_check(name, expr)
+        except SecurityError:
+            raise
         except ValueError as e:
             raise ValueError(f"Invalid expression for '{name}': {e}")
         
@@ -420,7 +422,7 @@ class CalculationEngine:
                 allowed_locals[sym_name] = sympy.Symbol(sym_name)
 
             # Parsing sécurisé de l'expression initiale
-            sym_expr = sympy.sympify(expr_processed, locals=allowed_locals)
+            sym_expr = safe_parse(expr_processed, local_dict=allowed_locals, evaluate=True)
             
             if expand:
                 # Recursive substitution of intermediate equations
@@ -446,7 +448,7 @@ class CalculationEngine:
                             sub_expr_processed = process_expression_string(sub_expr_str)
                             
                             # Sympify
-                            sub_sym_expr = sympy.sympify(sub_expr_processed, locals=allowed_locals)
+                            sub_sym_expr = safe_parse(sub_expr_processed, local_dict=allowed_locals, evaluate=True)
                             
                             subs_dict[sym] = sub_sym_expr
                             performed_sub = True
@@ -520,9 +522,11 @@ class LaTeXFormatter:
         """Helper to format an expression string to LaTeX."""
         try:
             local_dict = {name: sympy.Symbol(name) for name in graph.params.keys()}
-            sym_expr = sympy.sympify(expr_str, locals=local_dict, evaluate=False)
+            sym_expr = safe_parse(expr_str, local_dict=local_dict, evaluate=False)
             symbol_names = {sympy.Symbol(name): sym for name, sym in graph.symbols.items()}
             return sympy.latex(sym_expr, symbol_names=symbol_names)
+        except SecurityError:
+            raise
         except Exception:
             return expr_str.replace("**", "^").replace("*", r"\cdot ")
 
@@ -597,7 +601,7 @@ class LaTeXFormatter:
                 data["status"] = r"\textbf{\textcolor{green}{OK}}" if step.get("result") else r"\textbf{\textcolor{red}{NOK}}"
                 try:
                     local_dict = {name: sympy.Symbol(name) for name in graph.params.keys()}
-                    sym_expr = sympy.sympify(step["expr"], locals=local_dict, evaluate=False)
+                    sym_expr = safe_parse(step["expr"], local_dict=local_dict, evaluate=False)
                     if not step.get("result"):
                         sym_expr = sympy.Not(sym_expr)
                     subs = {}
@@ -617,6 +621,8 @@ class LaTeXFormatter:
                             new_sym_latex = rf"{{{latex_sym}}} = {val_str}"
                             subs[sym] = sympy.Symbol(new_sym_latex)
                     data["expr"] = sympy.latex(sym_expr.subs(subs))
+                except SecurityError:
+                    raise
                 except Exception:
                     data["expr"] = self._format_expr(step["expr"], graph)
 
