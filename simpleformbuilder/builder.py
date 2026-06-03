@@ -237,7 +237,7 @@ class CalculationEngine:
                     step["result"] = result
                     
                 except ZeroDivisionError:
-                    raise ZeroDivisionError(f"Division by zero in equation '{step['name']}': {step['expr']}")
+                    raise ValueError(f"Division by zero in equation '{step['desc']}'.")
                 except pint.DimensionalityError as e:
                     raise pint.DimensionalityError(e.units1, e.units2, e.extra_msg) from e
                 except Exception as e:
