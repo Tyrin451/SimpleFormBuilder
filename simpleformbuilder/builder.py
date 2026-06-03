@@ -369,6 +369,8 @@ class CalculationEngine:
                     res = res.to(target_unit)
                 # Note: if res is not a Quantity (concerns about unit validation failure?), we might skip.
                 # But typically it should be if inputs had units.
+                if isinstance(res, np.ndarray):
+                    res.astype(target_unit)
             else:
                 if hasattr(res, "dimensionless") and res.dimensionless:
                     if isinstance(res, pint.Quantity):

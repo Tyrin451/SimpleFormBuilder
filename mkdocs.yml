@@ -1,0 +1,17 @@
+site_name: Documentation SimpleFormBuilder
+theme:
+  name: material      # Le thème moderne recommandé
+  features:
+    - navigation.tabs # Ajoute des onglets en haut de page (très propre)
+
+plugins:
+  - search            # Barre de recherche standard
+  - mkdocstrings:     
+      default_handler: python
+      handlers:
+        python:
+          paths: [simpleformbuilder]
+
+nav:
+  - Accueil: index.md
+  - Référence Technique: reference.md
