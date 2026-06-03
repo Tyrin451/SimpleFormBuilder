@@ -1,13 +1,13 @@
 # SimpleFormBuilder
 
-# PySimpleForm
-
 PySimpleForm est une bibliothèque Python conçue pour faciliter la création de notes de calcul techniques et physiques. Elle permet de définir des paramètres, des équations et des vérifications, puis de générer automatiquement un rapport formaté en LaTeX.
 
-Elle s'appuie sur des bibliothèques robustes :
+Elle s'appuie sur :
 - **Pint** pour la gestion rigoureuse des unités physiques.
 - **SymPy** pour le rendu symbolique des équations.
 - **NumPy** pour les calculs numériques et vectoriels.
+
+Elle est également conçu pour s'intégrer facilement dans des notebooks Jupyter ou Marimo pour visualiser les rendus des calculs. Mais elle a également une utilisation utile avec pandas pour appliqué les formules utilisé sur un ensemble de données.
 
 ## Fonctionnalités
 
@@ -17,14 +17,17 @@ Elle s'appuie sur des bibliothèques robustes :
 - **Vérifications (Checks)** : Tests logiques (ex: `sigma <= sigma_adm`) avec retour visuel (OK/FAIL) dans le rapport.
 - **Rapport LaTeX** : Génération d'un code LaTeX prêt à l'emploi (environnement `align*`) pour une intégration facile dans des documents ou des notebooks (comme Marimo ou Jupyter).
 
+>[!note]
+> Cette librairie est en version de développement et n'est pas encore stable. Des fonctionnalités seront ajoutées et des bugs seront corrigés au fur et à mesure.
+
 ## Installation
 
-Le projet utilise `uv` pour la gestion des dépendances. Assurez-vous d'avoir un environnement Python (>= 3.13 recommandé) avec les dépendances suivantes :
+Le projet utilise `uv` pour la gestion des dépendances. Assurez-vous d'avoir un environnement Python (>= 3.12 recommandé) avec les dépendances suivantes :
 
 - `pint`
 - `sympy`
 - `numpy`
-- `marimo` (optionnel, pour l'affichage interactif)
+- `marimo` ou `jupyter` (optionnel, pour l'affichage interactif)
 
 Si vous utilisez `uv` :
 ```bash
@@ -99,13 +102,15 @@ $$
 
 - **`"standard"`** (Défaut) : Présentation tabulaire classique (`align*`).
 - **`"compact"`** : Présentation simplifiée sans descriptions textuelles (`align*`).
-- **`"detailed"`** : Présentation sous forme de liste avec descriptions en gras (`itemize`).
+
+>[!note]
+> Le template "detailed" est actuellement en développement.
 
 ### Exemple
 
 ```python
 # Initialisation avec un template
-builder = SimpleFormBuilder(template="detailed")
+builder = SimpleFormBuilder(template="compact")
 # ... ajout des paramètres et équations ...
 print(builder.report())
 ```
