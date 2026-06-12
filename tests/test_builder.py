@@ -205,3 +205,17 @@ def test_check_formatting():
     assert "12.35\%" in report
 
 
+
+def test_dimensionality_error_in_equation():
+    builder = sf_builder.SimpleFormBuilder()
+    u = builder.ureg
+
+    # Add parameters with incompatible units
+    builder.add_param("length", "L", 10 * u.meters, desc="A length")
+    builder.add_param("time", "t", 5 * u.seconds, desc="A time")
+
+    # Add an equation that tries to add them, which should raise a DimensionalityError
+    builder.add_equation("invalid_sum", "S", "length + time", unit=u.meters, desc="Invalid addition")
+
+    with pytest.raises(pint.DimensionalityError):
+        builder.evaluate()
