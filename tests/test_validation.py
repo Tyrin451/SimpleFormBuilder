@@ -1,5 +1,4 @@
 import pytest
-import pint
 from simpleformbuilder import builder as sf_builder
 
 def test_param_name_validation():

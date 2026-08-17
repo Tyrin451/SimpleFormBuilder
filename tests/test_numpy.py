@@ -1,5 +1,4 @@
 
-import pytest
 import numpy as np
 from simpleformbuilder import builder as sf_builder
 

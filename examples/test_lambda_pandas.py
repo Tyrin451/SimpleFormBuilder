@@ -8,9 +8,6 @@ app = marimo.App(width="medium")
 def _():
     import marimo as mo
     from simpleformbuilder import builder
-    import numpy as np
-    import pandas as pd
-    import pint_pandas
     return builder, mo
 
 
