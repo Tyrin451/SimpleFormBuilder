@@ -3,28 +3,26 @@ name: SimpleFormBuilder
 description: Use this skill whenever the user wants to create a technical calculation note, engineering formula sheet, or physics verification report in Python.
 ---
 
-## Setup
+## Setup the import
 
 ```python
 from simpleformbuilder.builder import SimpleFormBuilder
 
-builder = SimpleFormBuilder()
-u = builder.ureg  # Registre Pint — toujours utiliser u.xxx pour les unités
+builder = SimpleFormBuilder()  # base object
+u = builder.ureg  # Pint register — always use u.xxx for the units.
 ```
-
----
 
 ## API Reference
 
 ### `add_param(name, symbol, value, desc="", hidden=False, fmt=None)`
 
-Définit une constante ou donnée d'entrée.
+Add a parameter of the calculation.
 
-- `name` : identifiant Python valide (ex: `sigma_adm`)
-- `symbol` : chaîne LaTeX brute (ex: `r"\sigma_{adm}"`)
-- `value` : valeur avec unité Pint (ex: `100 * u.MPa`) ou scalaire pur
-- `hidden` : si `True`, n'apparaît pas dans le rapport
-- `fmt` : format numérique (ex: `".2f"`, `".0f"`)
+- `name` : valid python variable/identifier (ex: `sigma_adm`)
+- `symbol` : raw Latex string (ex: `r"\sigma_{adm}"`)
+- `value` : scalar or value with Pint unit (ex: `100 * u.MPa`)
+- `hidden` : if true, this parameter is hidden in report
+- `fmt` : numeric format of the parameter (ex: `".2f"`, `".0f"`)
 
 ```python
 builder.add_param("Fx", r"F_x", 10 * u.kN, desc="Force axiale")
@@ -32,47 +30,40 @@ builder.add_param("A",  r"A",   50 * u.cm**2, desc="Section transversale")
 builder.add_param("sigma_adm", r"\sigma_{adm}", 100 * u.MPa, desc="Contrainte admissible")
 ```
 
----
-
 ### `add_equation(name, symbol, expr, unit=None, desc="", hidden=False, fmt=None)`
 
-Définit une valeur calculée par expression symbolique.
+Defined a new value computed from symbolic expression.
 
-- `expr` : expression mathématique en chaîne (ex: `"Fx / A"`)
-- `unit` : unité cible Pint pour la conversion automatique du résultat
-- Les dépendances sont résolues automatiquement dans l'ordre d'ajout
+- `expr` : mathematical expression with parameter and operator (ex: `"Fx / A"`)
+- `unit` : Pint target unit unité cible Pint for the automatic conversion of the result
+- The dependencies are resolved in their adding order.
 
 ```python
 builder.add_equation("sigma", r"\sigma", "Fx / A", unit=u.MPa, desc="Contrainte calculée")
 ```
-
-**Opérateurs supportés :** `+`, `-`, `*`, `/`, `**`, `sqrt`, `sin`, `cos`, `abs`  
-**À éviter :** syntaxe Python spécifique, `__dunder__`, conditions ternaires
-
----
+**Supported operator :** `+`, `-`, `*`, `/`, `**`, `sqrt`, `sin`, `cos`, `abs`  
+**To avoid :** specific python syntaxe , `__dunder__`, ternary condition
 
 ### `add_check(expr, desc, name="Check", fmt=None)`
 
-Ajoute une vérification booléenne. Rendu **OK** (vert) ou **FAIL** (rouge) dans le rapport.
+Add boolean verification. 
 
-- `expr` : expression booléenne en chaîne (ex: `"sigma <= sigma_adm"`)
+- `expr` : boolean expression (ex: `"sigma <= sigma_adm"`)
 
 ```python
 builder.add_check("sigma <= sigma_adm", desc="Vérification de la contrainte")
 ```
 
----
+**Note** : Prefere use "<=" or ">=".
 
 ### `evaluate()`
 
-Exécute tous les calculs dans l'ordre d'ajout. **Doit être appelé avant `report()`.**  
-Si des paramètres sont modifiés après coup, rappeler `evaluate()`.
-
----
+Execute all computation in added order. **Must be call before `report()`.**
+If parameter are modified, recall `evaluate()`.
 
 ### `report(row_templates=None, environment=None)`
 
-Génère le code LaTeX du rapport.
+Generate the latex report.
 
 - `environment` : force un environnement LaTeX spécifique (`"align*"`, `"gather"`, etc.)
 - `row_templates` : dict optionnel pour personnaliser le rendu ligne par ligne (`"param"`, `"eq"`, `"check"`)
@@ -80,7 +71,6 @@ Génère le code LaTeX du rapport.
 **Templates disponibles** (passés à `SimpleFormBuilder(template=...)`) :
 - `"standard"` (défaut) : tableau avec descriptions
 - `"compact"` : sans descriptions textuelles
-- ~~`"detailed"`~~ : en cours de développement, ne pas utiliser
 
 ```python
 builder.evaluate()
@@ -89,16 +79,15 @@ print(report)
 # ou dans Marimo/Jupyter : mo.md(report) / display(Markdown(report))
 ```
 
----
-
 ### `lambdify_equation(name)`
 
-Retourne une **fonction vectorisée** à passer à `df.assign()` pour traitement Pandas.
+Return a vectorized function (lambdify).
+Useful for `df.assign()` with the pandas library.
 
-Résolution des variables dans cet ordre de priorité :
-1. Colonnes du DataFrame (surcharge tout)
-2. Équations intermédiaires du builder (calcul en chaîne)
-3. Paramètres constants du builder (valeurs par défaut)
+The variables are solved in this priority order.
+2. The named parameter in dataframe column overload everything.
+2. Intermediary equation in builder (chained calculation)
+3. Constant parameter in the builder (default value)
 
 ```python
 builder.add_param("A", r"A", 50 * u.cm**2)
@@ -110,38 +99,33 @@ df = pd.DataFrame({'Fx': [10, 20, 30] * u.kN})
 df = df.assign(sigma=calc_sigma)  # A est pris dans les params du builder
 ```
 
----
-
-## Workflow complet
+## Complete Workflow example
 
 ```python
 from simpleformbuilder.builder import SimpleFormBuilder
 
-builder = SimpleFormBuilder()          # ou template="compact"
+builder = SimpleFormBuilder()
 u = builder.ureg
 
-# 1. Paramètres
+# 1. Parameters
 builder.add_param("Fx", r"F_x", 10 * u.kN, desc="Force axiale")
 builder.add_param("A", r"A", 50 * u.cm**2, desc="Section transversale")
 builder.add_param("sigma_adm", r"\sigma_{adm}", 100 * u.MPa, desc="Contrainte admissible")
 
-# 2. Équations
+# 2. Equation
 builder.add_equation("sigma", r"\sigma", "Fx / A", unit=u.MPa, desc="Contrainte calculée")
 
-# 3. Vérifications
+# 3. Verification
 builder.add_check("sigma <= sigma_adm", desc="Vérification de la contrainte")
 
-# 4. Calcul + rapport
+# 4. Calculation / Report
 builder.evaluate()
 print(builder.report())
 ```
 
----
+## Gotchas
 
-## Pièges fréquents
-
-- **Unités incompatibles** : Pint lève `DimensionalityError` si on additionne `m + kg`. Vérifier la cohérence dimensionnelle des expressions.
-- **Ordre d'évaluation** : une équation ne peut référencer que des variables définies *avant* elle. Pas de dépendance circulaire.
-- **`lambdify_equation` s'utilise avec `df.assign(col=func)`**, pas `df['col'] = func(df)`.
-- **Template `"detailed"` non disponible** : lève une erreur, utiliser `"standard"` ou `"compact"`.
-- **Symboles LaTeX** : toujours utiliser des raw strings `r"\sigma"` pour éviter les problèmes d'échappement.
+* **Incompatible units**: Pint raises `DimensionalityError` when adding `m + kg`. Verify the dimensional consistency of expressions.
+* **Evaluation order**: An equation can only reference variables defined *before* it. No circular dependencies.
+* **`lambdify_equation` is used with `df.assign(col=func)**`, not `df['col'] = func(df)`.
+* **LaTeX symbols**: Always use raw strings `r"\sigma"` to avoid escaping issues.
