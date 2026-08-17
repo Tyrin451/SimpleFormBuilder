@@ -1,6 +1,5 @@
 import pytest
 from simpleformbuilder import builder
-import numpy as np
 import pint
 
 def test_chained_evaluation_lambdify():

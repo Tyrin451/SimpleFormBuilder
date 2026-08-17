@@ -1,5 +1,4 @@
 
-import pytest
 from simpleformbuilder import builder as sf_builder
 
 def test_report_environment_override():

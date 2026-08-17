@@ -2,7 +2,6 @@ import pint
 import sympy
 import numpy as np
 import re
-import math
 from typing import Any, Optional, List, Dict
 from .utils import security_check, safe_parse, SecurityError
 from .templates import LaTeXTemplateLibrary

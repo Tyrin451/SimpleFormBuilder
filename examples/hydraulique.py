@@ -1,5 +1,4 @@
 from simpleformbuilder import builder
-import numpy as np
 
 # Initialisation
 sf = builder.SimpleFormBuilder()
