@@ -219,3 +219,102 @@ def test_dimensionality_error_in_equation():
 
     with pytest.raises(pint.DimensionalityError):
         builder.evaluate()
+
+
+def test_update_param_method():
+    builder = sf_builder.SimpleFormBuilder()
+    u = builder.ureg
+
+    builder.add_param("r", "r", 0.1 * u.dimensionless, fmt=".2f")
+    builder.add_equation("double_r", "2r", "2 * r", fmt=".2f")
+    builder.evaluate()
+
+    report1 = builder.report()
+    assert "0.10" in report1
+    assert "0.20" in report1
+
+    # Update param using update_param method
+    builder.update_param("r", 0.5 * u.dimensionless)
+    report2 = builder.report()
+    assert "0.50" in report2
+    assert "1.00" in report2
+
+
+def test_direct_params_dict_modification():
+    builder = sf_builder.SimpleFormBuilder()
+    u = builder.ureg
+
+    builder.add_param("r", "r", 0.1 * u.dimensionless, fmt=".2f")
+    builder.add_equation("double_r", "2r", "2 * r", fmt=".2f")
+    builder.evaluate()
+
+    # Modify params directly via dict
+    builder.params["r"] = 0.5 * u.dimensionless
+    report = builder.report() # auto_evaluate=True by default
+    assert "0.50" in report
+    assert "1.00" in report
+
+
+def test_report_auto_evaluate():
+    builder = sf_builder.SimpleFormBuilder()
+    u = builder.ureg
+
+    builder.add_param("a", "a", 10, fmt=".1f")
+    builder.add_equation("b", "b", "a * 2", fmt=".1f")
+    builder.evaluate()
+
+    # Mutate param without explicit evaluate
+    builder.params["a"] = 20
+
+    # With auto_evaluate=False, equations are not recomputed, but param in report shows updated value
+    report_no_auto = builder.report(auto_evaluate=False)
+    assert "a &= 20.0" in report_no_auto
+    # Equation 'b' was computed when 'a' was 10 (result = 20.0)
+    assert "b &=" in report_no_auto
+    assert "= 20.0" in report_no_auto
+    assert "= 40.0" not in report_no_auto
+
+    # With auto_evaluate=True (default), equations are recomputed
+    report_auto = builder.report(auto_evaluate=True)
+    assert "a &= 20.0" in report_auto
+    assert "= 40.0" in report_auto
+
+
+def test_update_param_validation():
+    builder = sf_builder.SimpleFormBuilder()
+    builder.add_param("x", "x", 10)
+
+    with pytest.raises(KeyError):
+        builder.update_param("non_existent", 20)
+
+    with pytest.raises(TypeError):
+        builder.update_param("x", "invalid_string_value")
+
+
+def test_user_scenario_fiche_cable_hissage():
+    fiche = sf_builder.SimpleFormBuilder()
+    u = fiche.ureg
+    fiche.add_param('r', 'r', 0.1*u.dimensionless, r'ratio brin court sur brin long', fmt='.1f')
+    fiche.add_param('L_tot', r'L_{tot}', 2*u.m, 'Longueur totale de cable', fmt='.1f')
+    fiche.add_param('K_eq', r'K_{eq}', 634890*u.N/u.m, 'Raideur équivalente global', fmt='.1f')
+
+    fiche.add_equation('ES', r'ES', 'K_eq*L_tot', unit=u.N, fmt='.1f')
+    fiche.add_equation('L_1', r'L_{1}', 'r*L_tot', unit=u.m, fmt='.1f', desc='Longueur brin court')
+    fiche.add_equation('L_2', r'L_{2}', '(1-r)*L_tot', unit=u.m, fmt='.1f', desc='Longueur brin long')
+
+    fiche.add_equation('K_1', r'K_{1}', 'ES/L_1', unit=u.N/u.m, fmt='.1f', desc='Raideur brin court')
+    fiche.add_equation('K_2', r'K_{2}', 'ES/L_2', unit=u.N/u.m, fmt='.1f', desc='Raideur brin long')
+
+    fiche.evaluate()
+
+    # Redefine param before report
+    fiche.params['r'] = 0.5 * fiche.ureg.dimensionless
+    report = fiche.report()
+
+    # Check that r is updated in report (0.5)
+    assert "r &= 0.5" in report
+    # L_1 should be 0.5 * 2 = 1.0 m
+    assert r"L_{1} &=" in report
+    assert r"1.0\ \mathrm{m}" in report
+    # K_1 and K_2 with r=0.5 (L_1 = 1.0 m) should be ES / 1.0 = 1269780.0 N/m
+    assert "1269780.0" in report
