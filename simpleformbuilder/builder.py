@@ -95,6 +95,30 @@ class CalculationGraph:
             "fmt": fmt
         })
 
+    def update_param(self, name: str, value: Any):
+        """
+        Updates an existing parameter's value in the calculation graph.
+
+        Args:
+            name (str): Unique identifier of the parameter to update.
+            value (int, float, pint.Quantity, np.ndarray): The new numerical value or physical quantity.
+
+        Raises:
+            KeyError: If `name` is not registered as a parameter.
+            TypeError: If `value` is not one of the accepted types.
+        """
+        if name not in self.params:
+            raise KeyError(f"Parameter '{name}' not found in calculation graph.")
+
+        if not isinstance(value, (int, float, pint.Quantity, np.ndarray)):
+            raise TypeError(f"Value for '{name}' must be an int, float, pint.Quantity, or np.ndarray. Got {type(value)}.")
+
+        self.params[name] = value
+
+        for step in self.steps:
+            if step["type"] == "param" and step["name"] == name:
+                step["value"] = value
+
     def add_equation(self, name: str, symbol: str, expr: str, unit: Any = None, desc: str = "", hidden: bool = False, fmt: str = None):
         """
         Registers an equation to be calculated.
@@ -187,8 +211,9 @@ class CalculationEngine:
         """
         Helper to compile (if needed) and evaluate a step's expression.
         """
-        if step["compiled_func"] is None:
-                compiled_func, args_names = self._compile_equation(step["name"], step["expr"], graph)
+        if step.get("compiled_func") is None:
+                name = step.get("name", "Check")
+                compiled_func, args_names = self._compile_equation(name, step["expr"], graph)
                 step["compiled_func"] = compiled_func
                 step["args_names"] = args_names
 
@@ -221,7 +246,11 @@ class CalculationEngine:
                  raise KeyError(f"Variable '{arg_name}' not found.")
 
         for step in graph.steps:
-            if step["type"] == "eq":
+            if step["type"] == "param":
+                if step["name"] in graph.params:
+                    step["value"] = graph.params[step["name"]]
+
+            elif step["type"] == "eq":
                 try:
                     # evaluation
                     result = self._evaluate_raw_expression(step, graph, get_arg_value)
@@ -237,6 +266,8 @@ class CalculationEngine:
                     graph.params[step["name"]] = result
                     step["result"] = result
                     
+                except SecurityError:
+                    raise
                 except ZeroDivisionError:
                     raise ValueError(f"Division by zero in equation '{step['desc']}'.")
                 except pint.DimensionalityError as e:
@@ -254,6 +285,8 @@ class CalculationEngine:
                         step["result"] = bool(result.all())
                     else:
                         step["result"] = bool(result)
+                except SecurityError:
+                    raise
                 except Exception as e:
                      raise RuntimeError(f"Error evaluating check '{step['desc']}': {e}")
                      
@@ -470,6 +503,8 @@ class CalculationEngine:
             compiled_func = sympy.lambdify(args_syms, sym_expr, modules=["numpy", "math"])
             return compiled_func, args_names
 
+        except SecurityError:
+            raise
         except Exception as e:
             raise ValueError(f"Invalid or unsafe expression '{expr}' for '{name}': {e}")
 
@@ -592,7 +627,9 @@ class LaTeXFormatter:
             }
 
             if step_type == "param":
-                data["value"] = self._format_value(step["value"], step.get("fmt"))
+                val = graph.params.get(step["name"], step["value"])
+                step["value"] = val
+                data["value"] = self._format_value(val, step.get("fmt"))
                 
             elif step_type == "eq":
                 data["value"] = self._format_value(step.get("result"), step.get("fmt"))
@@ -698,6 +735,16 @@ class SimpleFormBuilder:
         """
         self.graph.add_param(name, symbol, value, desc, hidden, fmt)
 
+    def update_param(self, name: str, value: Any):
+        """
+        Updates an existing parameter's value.
+
+        Args:
+            name (str): Unique identifier of the parameter.
+            value (int, float, pint.Quantity, np.ndarray): New value.
+        """
+        self.graph.update_param(name, value)
+
     def add_equation(self, name: str, symbol: str, expr: str, unit: Any = None, desc: str = "", hidden: bool = False, fmt: str = None):
         """
         Registers an equation to be calculated.
@@ -764,7 +811,7 @@ class SimpleFormBuilder:
         """
         return self.graph.params[key]
 
-    def report(self, row_templates: Optional[Dict[str, str]] = None, environment: str = None) -> str:
+    def report(self, row_templates: Optional[Dict[str, str]] = None, environment: str = None, auto_evaluate: bool = True) -> str:
         """
         Generates the LaTeX report.
 
@@ -773,8 +820,11 @@ class SimpleFormBuilder:
             environment (str, optional): LaTeX environment override. 
                                          If None (default), uses the template's defined environments.
                                          If provided, forces all steps to this environment.
+            auto_evaluate (bool, optional): If True (default), evaluates calculations before generating the report.
 
         Returns:
             str: The generated LaTeX code.
         """
+        if auto_evaluate:
+            self.evaluate()
         return self.formatter.report(self.graph, row_templates, environment)
