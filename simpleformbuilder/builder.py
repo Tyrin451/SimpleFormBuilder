@@ -29,6 +29,7 @@ class CalculationGraph:
         self.params: Dict[str, Any] = {}
         self.symbols: Dict[str, str] = {}
         self.steps: List[Dict[str, Any]] = []
+        self.step_map: Dict[str, Dict[str, Any]] = {}
 
     def _validate_expression(self, name: str, expr: str):
         """
@@ -85,7 +86,7 @@ class CalculationGraph:
         self.params[name] = value
         self.symbols[name] = symbol
         
-        self.steps.append({
+        step = {
             "type": "param",
             "name": name,
             "symbol": symbol,
@@ -93,7 +94,10 @@ class CalculationGraph:
             "desc": desc,
             "hidden": hidden,
             "fmt": fmt
-        })
+        }
+        self.steps.append(step)
+        if name not in self.step_map:
+            self.step_map[name] = step
 
     def update_param(self, name: str, value: Any):
         """
@@ -115,9 +119,9 @@ class CalculationGraph:
 
         self.params[name] = value
 
-        for step in self.steps:
-            if step["type"] == "param" and step["name"] == name:
-                step["value"] = value
+        step = self.step_map.get(name)
+        if step and step["type"] == "param":
+            step["value"] = value
 
     def add_equation(self, name: str, symbol: str, expr: str, unit: Any = None, desc: str = "", hidden: bool = False, fmt: str = None):
         """
@@ -144,7 +148,7 @@ class CalculationGraph:
         # Note: cycles are not checked for now assumed to be handled by the user
         # self.validate_graph(current_node=name, dependencies=self._extract_deps(expr))
 
-        self.steps.append({
+        step = {
             "type": "eq",
             "name": name,
             "symbol": symbol,
@@ -155,7 +159,10 @@ class CalculationGraph:
             "fmt": fmt,
             "compiled_func": None, # Delayed compilation
             "args_names": []
-        })
+        }
+        self.steps.append(step)
+        if name not in self.step_map:
+            self.step_map[name] = step
 
     def add_check(self, expr: str, desc: str, name: str = "Check", fmt: str = None):
         """
@@ -176,7 +183,7 @@ class CalculationGraph:
         # Validation of cycles (optional placeholder)
         # self.validate_graph(current_node=name, dependencies=self._extract_deps(expr))
 
-        self.steps.append({
+        step = {
             "type": "check",
             "name": name,
             "expr": expr,
@@ -184,7 +191,10 @@ class CalculationGraph:
             "fmt": fmt,
             "compiled_func": None, # Delayed compilation
             "args_names": []
-        })
+        }
+        self.steps.append(step)
+        if name not in self.step_map:
+            self.step_map[name] = step
 
     # def validate_graph(self, current_node: str, dependencies: List[str]):
     #     """
@@ -319,13 +329,8 @@ class CalculationEngine:
             KeyError: If the equation is not found.
         """
         # Find the equation step
-        eq_step = None
-        for step in graph.steps:
-            if step.get("type") == "eq" and step.get("name") == name:
-                eq_step = step
-                break
-        
-        if not eq_step:
+        eq_step = graph.step_map.get(name)
+        if not eq_step or eq_step.get("type") != "eq":
             raise KeyError(f"Equation '{name}' not found.")
         
         # Compile WITHOUT expansion to preserve intermediate variables in signature
@@ -337,7 +342,7 @@ class CalculationEngine:
         dep_funcs = {}
         for arg in args_names:
             # Check if arg corresponds to an equation step
-            step = next((s for s in graph.steps if s.get("name") == arg), None)
+            step = graph.step_map.get(arg)
             if step and step.get("type") == "eq":
                 # Recursively create lambda for the dependency
                 dep_funcs[arg] = self.lambdify_equation(graph, arg)
@@ -472,7 +477,7 @@ class CalculationEngine:
                         sym_str = str(sym)
                         # Check if this symbol matches an existing Equation in the graph
                         # We should skip if it's a Parameter (leaf)
-                        step = next((s for s in graph.steps if s.get("name") == sym_str), None)
+                        step = graph.step_map.get(sym_str)
                         
                         if step and step["type"] == "eq":
                             # Found an intermediate equation defined in the graph
@@ -650,10 +655,9 @@ class LaTeXFormatter:
                             latex_sym = graph.symbols.get(sym_name, sym_name)
                             fmt = step.get("fmt")
                             if fmt is None:
-                                for s in graph.steps:
-                                    if s.get("name") == sym_name:
-                                        fmt = s.get("fmt")
-                                        break
+                                s = graph.step_map.get(sym_name)
+                                if s:
+                                    fmt = s.get("fmt")
                             val_str = self._format_value(val, fmt)
                             # Simple substitution for logic display
                             new_sym_latex = rf"{{{latex_sym}}} = {val_str}"
