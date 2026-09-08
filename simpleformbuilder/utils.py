@@ -8,7 +8,7 @@ class SecurityError(ValueError):
 
 ALLOWED_FUNCTIONS = {
     "sqrt", "sin", "cos", "tan", "log", "exp", "abs", "min", "max",
-    "pi", "all", "any"
+    "pi", "all", "any", "where"
 }
 
 FORBIDDEN_KEYWORDS = {

@@ -19,6 +19,7 @@ ALLOWED_LOCALS = {
                 "pi": sympy.pi,
                 "all": sympy.Function("all"),
                 "any": sympy.Function("any"),
+                "where": lambda cond, val_true, val_false: sympy.Piecewise((val_true, cond), (val_false, True)),
             }
 
 class CalculationGraph:
@@ -122,6 +123,35 @@ class CalculationGraph:
         step = self.step_map.get(name)
         if step and step["type"] == "param":
             step["value"] = value
+
+    def add_conditional_equation(
+        self,
+        name: str,
+        symbol: str,
+        condition: str,
+        expr_if_true: str,
+        expr_if_false: str,
+        unit: Any = None,
+        desc: str = "",
+        hidden: bool = False,
+        fmt: str = None
+    ):
+        """
+        Registers a conditional equation to be calculated.
+
+        Args:
+            name (str): Unique identifier for the result variable.
+            symbol (str): LaTeX representation of the result symbol.
+            condition (str): The boolean condition expression (e.g. "x > 0").
+            expr_if_true (str): The expression to evaluate if the condition is true.
+            expr_if_false (str): The expression to evaluate if the condition is false.
+            unit (Any, optional): The expected unit of the result. Defaults to None.
+            desc (str, optional): Description of the equation. Defaults to "".
+            hidden (bool, optional): If True, this step will be hidden in the report. Defaults to False.
+            fmt (str, optional): Format string for the result. Defaults to None.
+        """
+        expr = f"where({condition}, {expr_if_true}, {expr_if_false})"
+        self.add_equation(name, symbol, expr, unit, desc, hidden, fmt)
 
     def add_equation(self, name: str, symbol: str, expr: str, unit: Any = None, desc: str = "", hidden: bool = False, fmt: str = None):
         """
@@ -563,9 +593,14 @@ class LaTeXFormatter:
         """Helper to format an expression string to LaTeX."""
         try:
             local_dict = {name: sympy.Symbol(name) for name in graph.params.keys()}
+            local_dict["where"] = lambda cond, val_true, val_false: sympy.Piecewise((val_true, cond), (val_false, True))
             sym_expr = safe_parse(expr_str, local_dict=local_dict, evaluate=False)
             symbol_names = {sympy.Symbol(name): sym for name, sym in graph.symbols.items()}
-            return sympy.latex(sym_expr, symbol_names=symbol_names)
+            latex_str = sympy.latex(sym_expr, symbol_names=symbol_names)
+            # Localize piecewise environment specifically to French
+            latex_str = latex_str.replace(r"\text{for}\:", r"\text{si }")
+            latex_str = latex_str.replace(r"\text{otherwise}", r"\text{sinon}")
+            return latex_str
         except SecurityError:
             raise
         except Exception:
@@ -748,6 +783,34 @@ class SimpleFormBuilder:
             value (int, float, pint.Quantity, np.ndarray): New value.
         """
         self.graph.update_param(name, value)
+
+    def add_conditional_equation(
+        self,
+        name: str,
+        symbol: str,
+        condition: str,
+        expr_if_true: str,
+        expr_if_false: str,
+        unit: Any = None,
+        desc: str = "",
+        hidden: bool = False,
+        fmt: str = None
+    ):
+        """
+        Registers a conditional equation.
+
+        Args:
+            name (str): Unique identifier for the result.
+            symbol (str): LaTeX representation.
+            condition (str): Boolean condition expression.
+            expr_if_true (str): Expression if condition is true.
+            expr_if_false (str): Expression if condition is false.
+            unit (Any, optional): Expected unit. Defaults to None.
+            desc (str, optional): Description. Defaults to "".
+            hidden (bool, optional): Hide from report. Defaults to False.
+            fmt (str, optional): Format string. Defaults to None.
+        """
+        self.graph.add_conditional_equation(name, symbol, condition, expr_if_true, expr_if_false, unit, desc, hidden, fmt)
 
     def add_equation(self, name: str, symbol: str, expr: str, unit: Any = None, desc: str = "", hidden: bool = False, fmt: str = None):
         """
