@@ -571,7 +571,7 @@ class LaTeXFormatter:
         except Exception:
             return expr_str.replace("**", "^").replace("*", r"\cdot ")
 
-    def report(self, graph: CalculationGraph, row_templates: Optional[Dict[str, str]] = None, environment: Optional[str] = None) -> str:
+    def report(self, graph: CalculationGraph, engine: Optional['CalculationEngine'] = None, row_templates: Optional[Dict[str, str]] = None, environment: Optional[str] = None) -> str:
         """
         Generates the LaTeX report.
         
@@ -647,22 +647,53 @@ class LaTeXFormatter:
                     sym_expr = safe_parse(step["expr"], local_dict=local_dict, evaluate=False)
                     if not step.get("result"):
                         sym_expr = sympy.Not(sym_expr)
-                    subs = {}
-                    for sym in sym_expr.free_symbols:
-                        sym_name = str(sym)
-                        if sym_name in graph.params:
-                            val = graph.params[sym_name]
-                            latex_sym = graph.symbols.get(sym_name, sym_name)
-                            fmt = step.get("fmt")
-                            if fmt is None:
-                                s = graph.step_map.get(sym_name)
-                                if s:
-                                    fmt = s.get("fmt")
-                            val_str = self._format_value(val, fmt)
-                            # Simple substitution for logic display
-                            new_sym_latex = rf"{{{latex_sym}}} = {val_str}"
-                            subs[sym] = sympy.Symbol(new_sym_latex)
-                    data["expr"] = sympy.latex(sym_expr.subs(subs))
+
+                    if isinstance(sym_expr, sympy.core.relational.Relational):
+                        lhs_func, lhs_args = engine._compile_equation("lhs", str(sym_expr.lhs), graph, expand=False)
+                        rhs_func, rhs_args = engine._compile_equation("rhs", str(sym_expr.rhs), graph, expand=False)
+
+                        lhs_val_args = [graph.params.get(arg) for arg in lhs_args]
+                        rhs_val_args = [graph.params.get(arg) for arg in rhs_args]
+
+                        lhs_val = lhs_func(*lhs_val_args)
+                        rhs_val = rhs_func(*rhs_val_args)
+
+                        fmt = step.get("fmt")
+                        lhs_val_str = self._format_value(lhs_val, fmt)
+                        rhs_val_str = self._format_value(rhs_val, fmt)
+
+                        symbol_names = {sympy.Symbol(k): v for k, v in graph.symbols.items()}
+                        lhs_latex = sympy.latex(sym_expr.lhs, symbol_names=symbol_names)
+                        rhs_latex = sympy.latex(sym_expr.rhs, symbol_names=symbol_names)
+
+                        rel_op_map = {
+                            sympy.core.relational.StrictLessThan: "<",
+                            sympy.core.relational.LessThan: "\\leq",
+                            sympy.core.relational.StrictGreaterThan: ">",
+                            sympy.core.relational.GreaterThan: "\\geq",
+                            sympy.core.relational.Equality: "=",
+                            sympy.core.relational.Unequality: "\\neq",
+                        }
+                        rel_op = rel_op_map.get(type(sym_expr), sym_expr.rel_op)
+
+                        data["expr"] = rf"{{{lhs_latex}}} = {lhs_val_str} {rel_op} {{{rhs_latex}}} = {rhs_val_str}"
+                    else:
+                        subs = {}
+                        for sym in sym_expr.free_symbols:
+                            sym_name = str(sym)
+                            if sym_name in graph.params:
+                                val = graph.params[sym_name]
+                                latex_sym = graph.symbols.get(sym_name, sym_name)
+                                fmt = step.get("fmt")
+                                if fmt is None:
+                                    s = graph.step_map.get(sym_name)
+                                    if s:
+                                        fmt = s.get("fmt")
+                                val_str = self._format_value(val, fmt)
+                                # Simple substitution for logic display
+                                new_sym_latex = rf"{{{latex_sym}}} = {val_str}"
+                                subs[sym] = sympy.Symbol(new_sym_latex)
+                        data["expr"] = sympy.latex(sym_expr.subs(subs))
                 except SecurityError:
                     raise
                 except Exception:
@@ -831,4 +862,4 @@ class SimpleFormBuilder:
         """
         if auto_evaluate:
             self.evaluate()
-        return self.formatter.report(self.graph, row_templates, environment)
+        return self.formatter.report(self.graph, self.engine, row_templates, environment)
