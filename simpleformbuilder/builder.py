@@ -644,6 +644,9 @@ class LaTeXFormatter:
                 data["expr"] = self._format_expr(step["expr"], graph)
                 
             elif step_type == "check":
+                if step.get("desc"):
+                    data["name"] = step.get("desc")
+
                 data["status"] = r"\textbf{\textcolor{green}{OK}}" if step.get("result") else r"\textbf{\textcolor{red}{NOK}}"
                 try:
                     local_dict = {name: sympy.Symbol(name) for name in graph.params.keys()}

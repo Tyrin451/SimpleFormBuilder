@@ -17,7 +17,7 @@ class LaTeXTemplateLibrary:
             "rows": {
                 "param": r"{symbol} &= {value} && \text{{{desc}}} \\",
                 "eq": r"{symbol} &= {expr} = {value} && \text{{{desc}}} \\",
-                "check": r"\text{{{name}}} : &&& \text{{{desc}}} \\ & {expr} \rightarrow {status} &&  \\"
+                "check": r"\text{{{name}}} : &&& \\ & {expr} \rightarrow {status} &&  \\"
             }
         },
         "compact": {
