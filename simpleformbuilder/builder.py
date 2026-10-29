@@ -6,6 +6,9 @@ from typing import Any, Optional, List, Dict
 from .utils import security_check, safe_parse, SecurityError
 from .templates import LaTeXTemplateLibrary
 
+# Registre partagé par défaut (singleton implicite) pour éviter l'erreur "Cannot operate with Quantity and Quantity of different registries."
+_default_ureg = pint.UnitRegistry()
+
 ALLOWED_LOCALS = {
                 "sqrt": sympy.sqrt,
                 "sin": sympy.sin,
@@ -215,7 +218,7 @@ class CalculationEngine:
     Handles calculation execution and evaluation.
     """
     def __init__(self, ureg: Optional[pint.UnitRegistry] = None):
-        self.ureg = ureg if ureg else pint.UnitRegistry()
+        self.ureg = ureg if ureg is not None else _default_ureg
 
     def _evaluate_raw_expression(self, step: Dict[str, Any], graph: CalculationGraph, get_arg_value) -> Any:
         """
@@ -719,7 +722,7 @@ class SimpleFormBuilder:
     Facade for creating physical calculation reports, orchestrating Graph, Engine and Formatter.
     """
 
-    def __init__(self, precision: int = 2, template: str = "standard"):
+    def __init__(self, precision: int = 2, template: str = "standard", ureg: Optional[pint.UnitRegistry] = None):
         """
         Initializes the builder composition.
 
@@ -729,7 +732,7 @@ class SimpleFormBuilder:
             formatter (LaTeXFormatter): Formats output.
         """
         self.graph = CalculationGraph()
-        self.engine = CalculationEngine()
+        self.engine = CalculationEngine(ureg=ureg)
         self.formatter = LaTeXFormatter(precision=precision, template=template)
 
     @property
